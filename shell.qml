@@ -27,9 +27,15 @@ ShellRoot {
 
     // ── Standalone windows ────────────────────────────────────────────────────
     GridOverlay        {}   // must be registered before OverlayCanvas/WidgetWindows
-    ClickCatcher       {}   // must come before OverlayCanvas so it's registered first
+    ClickCatcher       {}
     OverlayCanvas      {}
-    WallpaperBackground {}
+    Variants {
+        model: Quickshell.screens
+        WallpaperBackground {
+            required property var modelData
+            screen: modelData
+        }
+    }
     VolumeOSD          {}
     NotificationOSD    {}
     WallpaperPicker    {}
