@@ -26,9 +26,7 @@ import "./modules"
 ShellRoot {
 
     // ── Standalone windows ────────────────────────────────────────────────────
-    GridOverlay        {}   // must be registered before OverlayCanvas/WidgetWindows
-    ClickCatcher       {}
-    OverlayCanvas      {}
+    OverlaySurface     {}
     Variants {
         model: Quickshell.screens
         WallpaperBackground {
@@ -60,7 +58,7 @@ ShellRoot {
         onExited: ModuleControllers.show("volume-osd")
     }
 
-    // ── Wallpaper-random helper ───────────────────────────────────────────────
+    // ── Wallpaper-random helper ───────────────────────────────────────── ──────
     Process {
         id: _wpRandProc
         property string folder: ""
