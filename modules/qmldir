@@ -1,8 +1,5 @@
-OverlayCanvas 1.0 OverlayCanvas.qml
-ClickCatcher 1.0 ClickCatcher.qml
-WidgetWindow 1.0 WidgetWindow.qml
-GridOverlay 1.0 GridOverlay.qml
-StandaloneWindow 1.0 StandaloneWindow.qml
+OverlaySurface 1.0 OverlaySurface.qml
+WidgetItem 1.0 WidgetItem.qml
 WallpaperBackground 1.0 WallpaperBackground.qml
 VolumeOSD 1.0 VolumeOSD.qml
 NotificationOSD 1.0 NotificationOSD.qml

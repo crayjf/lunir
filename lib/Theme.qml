@@ -17,7 +17,6 @@ QtObject {
     readonly property bool   overlayBackgroundEnabled: Config.theme.overlayBackgroundEnabled !== false
     readonly property color  overlayBackground:  _c(Config.theme.overlayBackground,  "#00000066")
     readonly property color  widgetBackground:   _c(Config.theme.widgetBackground,   "#d91e1e2e")
-    readonly property real   widgetOpacity:      Config.theme.widgetOpacity  !== undefined ? Config.theme.widgetOpacity : 1.0
     readonly property color  widgetBorderColor:  _c(Config.theme.widgetBorderColor,  "#8089b4fa")
     readonly property real   widgetBorderWidth:  Config.theme.widgetBorderWidth  !== undefined ? Config.theme.widgetBorderWidth  : 1
     readonly property real   widgetBorderRadius: Config.theme.widgetBorderRadius !== undefined ? Config.theme.widgetBorderRadius : 12

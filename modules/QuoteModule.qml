@@ -151,7 +151,8 @@ Item {
 
     // ── UI ────────────────────────────────────────────────────────────────────
     Column {
-        anchors { fill: parent; margins: 12 }
+        anchors { left: parent.left; right: parent.right; margins: 12 }
+        anchors.verticalCenter: parent.verticalCenter
         spacing: 10
 
         Text {

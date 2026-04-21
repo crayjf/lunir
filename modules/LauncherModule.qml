@@ -89,6 +89,25 @@ Item {
             if (root._allApps.length === 0) scanProc.running = true
         }
     }
+    Connections {
+        target: ModuleControllers
+        function onKeyForward(key, text, modifiers) {
+            if (!root.visible) return
+            if (text.length > 0 && text >= ' ') {
+                searchField.insert(searchField.cursorPosition, text)
+            } else if (key === Qt.Key_Backspace) {
+                if (searchField.cursorPosition > 0)
+                    searchField.remove(searchField.cursorPosition - 1, searchField.cursorPosition)
+            } else if (key === Qt.Key_Return || key === Qt.Key_Enter) {
+                root._launch()
+            } else if (key === Qt.Key_Down) {
+                root._selIdx = Math.min(root._selIdx + 1, root._results.length - 1)
+            } else if (key === Qt.Key_Up) {
+                root._selIdx = Math.max(root._selIdx - 1, 0)
+            }
+        }
+    }
+
     Component.onCompleted: scanProc.running = true
 
     // ── UI ────────────────────────────────────────────────────────────────────

@@ -8,6 +8,8 @@ import QtQuick 2.15
 QtObject {
     id: root
 
+    signal keyForward(int key, string text, int modifiers)
+
     property var _controllers: ({})
 
     function register(id, controller) {

@@ -26,6 +26,8 @@ PanelWindow {
         anchors.fill: parent
         source: Config.wallpaper.current ? expandPath(Config.wallpaper.current) : ""
         fillMode: fitMode(Config.wallpaper.fit)
+        sourceSize.width: win.width
+        sourceSize.height: win.height
         asynchronous: true
         cache: false
     }

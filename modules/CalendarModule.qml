@@ -243,14 +243,14 @@ Item {
                     property var cell: modelData
 
                     width:  calGrid.width / 7
-                    height: 50
+                    height: 64
                     color: cell.isSel ? Qt.rgba(Theme.accentColor.r,Theme.accentColor.g,Theme.accentColor.b,0.25)
                          : cell.isToday ? Qt.rgba(1,1,1,0.08) : "transparent"
                     radius: 3
 
                     Column {
                         anchors { fill: parent; margins: 3 }
-                        spacing: 1
+                        spacing: 2
                         visible: cell.day > 0
 
                         Text {
@@ -264,13 +264,13 @@ Item {
                             model: cell.events
                             delegate: Rectangle {
                                 required property var modelData
-                                width: parent.width - 2; height: 6; radius: 2
+                                width: parent.width - 2; height: 13; radius: 2
                                 color: root._showColors ? modelData.color : Qt.rgba(1,1,1,0.4)
                                 clip: true
                                 Text {
                                     anchors { fill: parent; leftMargin: 3 }
                                     text: modelData.summary
-                                    font.pixelSize: 6; color: "white"
+                                    font.pixelSize: 11; color: "white"
                                     elide: Text.ElideRight
                                     verticalAlignment: Text.AlignVCenter
                                 }

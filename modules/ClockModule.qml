@@ -33,51 +33,46 @@ Item {
     }
 
     Column {
-        anchors { fill: parent; margins: 16 }
+        anchors { left: parent.left; right: parent.right; margins: 16 }
+        anchors.verticalCenter: parent.verticalCenter
         spacing: 6
 
-        // Text block
-        Column {
+        Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            spacing: 6
-
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: root.dayText
-                font.family: "Anurati"
-                font.pixelSize: 13
-                font.letterSpacing: 4
-                color: Theme.textColor
-            }
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: root.dateText
-                font.pixelSize: 11
-                font.letterSpacing: 2
-                color: Qt.rgba(Theme.textColor.r, Theme.textColor.g, Theme.textColor.b, 0.7)
-            }
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: root.timeText
-                font.family: "Anurati"
-                font.pixelSize: 48
-                color: Theme.textColor
-            }
+            text: root.dayText
+            font.family: "Anurati"
+            font.pixelSize: 68
+            font.letterSpacing: 4
+            color: Theme.textColor
         }
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: root.dateText
+            font.pixelSize: 15
+            font.letterSpacing: 2
+            color: Qt.rgba(Theme.textColor.r, Theme.textColor.g, Theme.textColor.b, 0.7)
+        }
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: root.timeText
+            font.family: "Anurati"
+            font.pixelSize: 19
+            color: Theme.textColor
+        }
+    }
 
-        // Day progress bar
+    // Day progress bar
+    Rectangle {
+        anchors { left: parent.left; right: parent.right; bottom: parent.bottom; margins: 16 }
+        height: 6
+        radius: 3
+        color: Qt.rgba(1,1,1,0.1)
+
         Rectangle {
-            width: parent.width
-            height: 6
-            radius: 3
-            color: Qt.rgba(1,1,1,0.1)
-
-            Rectangle {
-                width: parent.width * root.dayFrac
-                height: parent.height
-                radius: parent.radius
-                color: Theme.accentColor
-            }
+            width: parent.width * root.dayFrac
+            height: parent.height
+            radius: parent.radius
+            color: Theme.accentColor
         }
     }
 }

@@ -1,22 +1,12 @@
 import QtQuick 2.15
 import Quickshell 0.1
-import Quickshell.Wayland 0.1
 import "../lib"
 
-// Per-widget PanelWindow — each canvas module gets its own Wayland surface.
-// Position is stored in margins (top/left) so the compositor can blur per-surface.
+// Per-widget Item inside OverlaySurface's widgetContainer.
+// Positioned absolutely (x/y). Animation is handled by the container.
 // Drag: Ctrl + left-button. Resize: left-button on any corner handle.
-PanelWindow {
+Item {
     id: win
-
-    WlrLayershell.layer: WlrLayershell.Overlay
-    WlrLayershell.namespace: "lunir-qs"
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-    anchors { top: true; left: true }
-    exclusionMode: ExclusionMode.Normal
-    color: "transparent"
-
-    screen: Quickshell.screens.find(function(s) { return s.name === "DP-1" }) ?? Quickshell.screens[0]
 
     property var moduleConfig: null
 
@@ -24,35 +14,18 @@ PanelWindow {
     readonly property int _minH: moduleConfig ? (moduleConfig.minHeight ?? 40)  : 40
     readonly property int _corner: 20
 
-    // Internal position/size — driven from config, then mutated by drag/resize.
     property real _x: 0
     property real _y: 0
     property real _w: _minW
     property real _h: _minH
 
-    // Guards so drag/resize don't get clobbered by config bindings mid-gesture.
-    property bool _dragging:  false
-    property bool _resizing:  false
+    property bool _dragging: false
+    property bool _resizing: false
 
-    implicitWidth:  _w
-    implicitHeight: _h
+    x: _x;     y: _y
+    width: _w; height: _h
 
-    margins {
-        top:  _y
-        left: _x
-    }
-
-    // Fade in/out
-    visible: false
-
-    property real fadeOpacity: 0.0
-    Behavior on fadeOpacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-    onFadeOpacityChanged: { if (fadeOpacity <= 0.0) win.visible = false }
-
-    function show() { visible = true; fadeOpacity = 1.0 }
-    function hide() { fadeOpacity = 0.0 }
-
-    // Sync position/size from config whenever it changes (but not during gesture).
+    // ── Config sync ────────────────────────────────────────────────────────────
     function _syncFromConfig() {
         if (!moduleConfig || _dragging || _resizing) return
         _x = moduleConfig.x      ?? 0
@@ -70,7 +43,7 @@ PanelWindow {
         id: chrome
         anchors.fill: parent
         color: Qt.rgba(Theme.widgetBackground.r, Theme.widgetBackground.g, Theme.widgetBackground.b,
-                       Theme.widgetBackground.a * Theme.widgetOpacity * win.fadeOpacity)
+                       Theme.widgetBackground.a)
         radius: Theme.widgetBorderRadius
         border.color: Theme.widgetBorderColor
         border.width: Theme.widgetBorderWidth
@@ -84,10 +57,7 @@ PanelWindow {
                 id: moduleLoader
                 anchors.fill: parent
                 source: win.moduleConfig ? moduleUrl(win.moduleConfig.type) : ""
-
-                onLoaded: {
-                    if (item) item.moduleConfig = win.moduleConfig
-                }
+                onLoaded: { if (item) item.moduleConfig = win.moduleConfig }
             }
 
             Binding {

@@ -16,7 +16,6 @@ QtObject {
         overlayBackgroundEnabled: true,
         overlayBackground: "rgba(0,0,0,0)",
         widgetBackground: "rgba(30,30,46,0.85)",
-        widgetOpacity: 1.0,
         widgetBorderColor: "rgba(137,180,250,0.5)",
         widgetBorderWidth: 1,
         widgetBorderRadius: 12,

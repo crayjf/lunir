@@ -11,6 +11,14 @@ Item {
     property bool _vpnConnected: false
     property string _vpnServer:  ""
     property bool _vpnBusy:    false
+    property bool _autoConnect: true
+
+    Timer {
+        id: vpnBusyTimeout
+        interval: 30000
+        repeat: false
+        onTriggered: { root._vpnBusy = false }
+    }
 
     // ── Interface scan ────────────────────────────────────────────────────────
     Process {
@@ -33,9 +41,9 @@ Item {
                 if (name.startsWith("e"))  eth.push({name, state})
                 if (name.startsWith("wl")) wifi.push({name, state})
             }
-            root._ethIfaces  = eth
-            root._wifiIfaces = wifi
-            // Fetch WiFi SSIDs
+            // Only reassign if content changed to avoid Repeater rebuilds
+            if (JSON.stringify(eth)  !== JSON.stringify(root._ethIfaces))  root._ethIfaces  = eth
+            if (JSON.stringify(wifi) !== JSON.stringify(root._wifiIfaces)) root._wifiIfaces = wifi
             for (const iface of wifi) {
                 if (iface.state === "up") _fetchSsid(iface.name)
             }
@@ -66,31 +74,44 @@ Item {
     Process {
         id: vpnCheckProc
         command: ["bash", "-c",
-            "state=$(cat /sys/class/net/proton0/operstate 2>/dev/null); " +
-            "if [ \"$state\" = 'up' ]; then " +
-            "  nmcli -t -f NAME,DEVICE connection show --active | grep ':proton0$' | cut -d: -f1; " +
-            "fi"]
+            "nmcli -t -f NAME,DEVICE connection show --active | grep ':proton0$' | cut -d: -f1"]
         running: false
         stdout: StdioCollector { id: vpnCheckStdio }
         onExited: {
             const out = vpnCheckStdio.text.trim()
-            root._vpnConnected = out.length > 0
-            root._vpnServer    = out.replace(/^ProtonVPN\s+/i, "")
+            const connected = out.length > 0
+            const server    = out.replace(/^ProtonVPN\s+/i, "")
+            if (connected !== root._vpnConnected) root._vpnConnected = connected
+            if (server    !== root._vpnServer)    root._vpnServer    = server
+            if (root._autoConnect && !root._vpnConnected) {
+                root._autoConnect = false
+                root._vpnBusy = true
+                vpnBusyTimeout.restart()
+                vpnConnProc.running = true
+            } else {
+                root._autoConnect = false
+            }
         }
     }
 
     // ── VPN connect / disconnect ──────────────────────────────────────────────
     Process {
         id: vpnConnProc
-        command: ["protonvpn-connect"]
+        command: ["bash", "-c",
+            "export XDG_RUNTIME_DIR=/run/user/$(id -u); " +
+            "export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus; " +
+            "/home/crayjf/.local/bin/protonvpn-connect"]
         running: false
-        onExited: { root._vpnBusy = false; vpnCheckProc.running = true }
+        onExited: { vpnBusyTimeout.stop(); root._vpnBusy = false; vpnCheckProc.running = true }
     }
     Process {
         id: vpnDiscProc
-        command: ["protonvpn-disconnect"]
+        command: ["bash", "-c",
+            "export XDG_RUNTIME_DIR=/run/user/$(id -u); " +
+            "export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus; " +
+            "/home/crayjf/.local/bin/protonvpn-disconnect"]
         running: false
-        onExited: { root._vpnBusy = false; vpnCheckProc.running = true }
+        onExited: { vpnBusyTimeout.stop(); root._vpnBusy = false; vpnCheckProc.running = true }
     }
 
     // ── Notify helper ─────────────────────────────────────────────────────────
@@ -102,9 +123,14 @@ Item {
     }
 
     Timer {
-        interval: 5000; repeat: true
-        running: root.visible; triggeredOnStart: true
+        interval: 10000; repeat: true
+        running: root.visible; triggeredOnStart: false
         onTriggered: { ifaceProc.running = true; vpnCheckProc.running = true }
+    }
+
+    Component.onCompleted: {
+        ifaceProc.running    = true
+        vpnCheckProc.running = true
     }
 
     // ── UI ────────────────────────────────────────────────────────────────────
@@ -215,6 +241,7 @@ Item {
                         enabled: !root._vpnBusy && !root._vpnConnected
                         onClicked: {
                             root._vpnBusy = true
+                            vpnBusyTimeout.restart()
                             vpnConnProc.running = true
                         }
                     }
@@ -236,6 +263,7 @@ Item {
                         enabled: !root._vpnBusy && root._vpnConnected
                         onClicked: {
                             root._vpnBusy = true
+                            vpnBusyTimeout.restart()
                             vpnDiscProc.running = true
                         }
                     }
