@@ -135,7 +135,6 @@ Singleton {
     readonly property color surfaceRaised: _c(_themeValue("surfaceRaised", "", "#44475AE0"), "#44475AE0")
     readonly property color surfaceHover:  _c(_themeValue("surfaceHover", "", "#FF79C629"), "#FF79C629")
     readonly property color border:        _c(_themeValue("border", "widgetBorderColor", "#F8F8F21F"), "#F8F8F21F")
-    readonly property color borderStrong:  _c(_themeValue("borderStrong", "", "#FF79C661"), "#FF79C661")
     readonly property color text:          _c(_themeValue("text", "textColor", "#F8F8F2FF"), "#F8F8F2FF")
     readonly property color textMuted:     _c(_themeValue("textMuted", "", "#F8F8F2B3"), "#F8F8F2B3")
     readonly property color accent:        _c(_themeValue("accent", "accentColor", "#FF79C6FF"), "#FF79C6FF")

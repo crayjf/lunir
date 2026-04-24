@@ -321,8 +321,8 @@ Item {
 
     Process {
         id: cleanupProc
-        command: ["ghostty", "-e", "sh", "-c",
-            "sudo pacman -Rns $(pacman -Qdtq); echo; read -p 'Press enter to close...'"]
+        command: ["ghostty", "-e", "fish", "-lc",
+            "clean-arch; echo; read -P 'Press enter to close...'"]
         running: false
         onExited: root._hideHost()
     }
