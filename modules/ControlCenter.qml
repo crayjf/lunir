@@ -96,7 +96,7 @@ PanelWindow {
         animProgress = 1.0
         resetTransientState()
         searchInput.text = ""
-        searchInput.forceActiveFocus()
+        focusItem.forceActiveFocus()
     }
 
     function hide() {
@@ -115,6 +115,30 @@ PanelWindow {
     function resetTransientState() {
         if (calendarSection.moduleItem && calendarSection.moduleItem._resetDisplayDay)
             calendarSection.moduleItem._resetDisplayDay()
+    }
+    function _wallpaperModule() {
+        return wallpaperSlot.moduleItem
+    }
+    function _moveWallpaper(step) {
+        const wallpaper = root._wallpaperModule()
+        if (wallpaper && wallpaper._selectRelative) wallpaper._selectRelative(step)
+    }
+    function _applyWallpaperSelection() {
+        const wallpaper = root._wallpaperModule()
+        if (wallpaper && wallpaper._applySelected) wallpaper._applySelected()
+    }
+    function _beginLauncherInput(text) {
+        searchInput.forceActiveFocus()
+        if (text && text.length > 0) {
+            searchInput.text = text
+            searchInput.cursorPosition = searchInput.text.length
+        }
+    }
+    function _isLauncherTextEvent(event) {
+        if (!event || !event.text || event.text.length === 0) return false
+        if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)) return false
+        const ch = event.text
+        return ch >= " "
     }
 
     function _score(name, query) {
@@ -257,6 +281,32 @@ done`
             id: focusItem
             anchors.fill: parent
             focus: true
+            Keys.onLeftPressed: (event) => {
+                root._moveWallpaper(-1)
+                event.accepted = true
+            }
+            Keys.onRightPressed: (event) => {
+                root._moveWallpaper(1)
+                event.accepted = true
+            }
+            Keys.onReturnPressed: (event) => {
+                root._applyWallpaperSelection()
+                event.accepted = true
+            }
+            Keys.onEnterPressed: (event) => {
+                root._applyWallpaperSelection()
+                event.accepted = true
+            }
+            Keys.onEscapePressed: (event) => {
+                root.hide()
+                event.accepted = true
+            }
+            Keys.onPressed: (event) => {
+                if (!event.accepted && root._isLauncherTextEvent(event)) {
+                    root._beginLauncherInput(event.text)
+                    event.accepted = true
+                }
+            }
         }
 
         Rectangle {
@@ -480,18 +530,19 @@ done`
             }
         }
 
-        Item {
-            id: wallpaperSection
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            height: 150
+                Item {
+                    id: wallpaperSection
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: 150
 
-            ModuleSlot {
-                anchors.fill: parent
-                moduleType: "wallpaper"
-            }
-        }
+                    ModuleSlot {
+                        id: wallpaperSlot
+                        anchors.fill: parent
+                        moduleType: "wallpaper"
+                    }
+                }
     }
 
     Item {

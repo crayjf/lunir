@@ -339,7 +339,7 @@ Item {
                 visible: !root._isEmptyState
                 anchors.fill: parent
                 anchors.margins: root._compact ? 10 : 12
-                spacing: 4
+                spacing: 8
 
                 Item {
                     width: parent.width

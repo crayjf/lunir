@@ -17,6 +17,7 @@ Item {
     readonly property color _busyColor:   Theme.surfaceHover
 
     readonly property int preferredHeight: leftCol.implicitHeight
+    readonly property real _systemColumnWidth: (mainRow.width - mainRow.spacing * 2) / 3
 
     // ── Perf state ────────────────────────────────────────────────────────────
     property int    cpuPct:  0;  property string cpuVal:  "—"
@@ -71,6 +72,8 @@ Item {
           detail: root._vpnBusy ? "Working…" : (root._vpnConnected ? (root._vpnServer || "Connected") : "Offline"),
           interactive: true }
     ]
+    readonly property var _wifiTile: root._netTiles.find(function(tile) { return tile.key === "wifi" })
+    readonly property var _secondaryNetTiles: root._netTiles.filter(function(tile) { return tile.key !== "wifi" })
 
     // ── Helpers ───────────────────────────────────────────────────────────────
     function _fmtBytes(n) {
@@ -96,6 +99,21 @@ Item {
         }
         if (!metrics.length) return null
         return metrics.sort(function(a, b) { return (b.total - a.total) || (b.busy - a.busy) })[0]
+    }
+    function _extractNetCounters(lines) {
+        let rx = 0, tx = 0
+        for (const line of lines) {
+            if (line.indexOf(":") < 0) continue
+            const parts = line.split(":")
+            if (parts.length < 2) continue
+            const iface = parts[0].trim()
+            if (!iface || iface === "lo") continue
+            const stats = parts[1].trim().split(/\s+/)
+            if (stats.length < 9) continue
+            rx += parseInt(stats[0]) || 0
+            tx += parseInt(stats[8]) || 0
+        }
+        return { rx, tx }
     }
 
     function _isWifiDevice(d)      { return d && d.type === DeviceType.Wifi }
@@ -167,11 +185,8 @@ Item {
                 if (gpu.busy >= 0) { root.gpuPct = gpu.busy; root.gpuVal = gpu.busy + "%" }
                 if (gpu.total > 0) { root.vramPct = Math.round(gpu.used / gpu.total * 100); root.vramVal = root._fmtBytes(gpu.used) }
             }
-            let rx = 0, tx = 0
-            for (const l of lines) {
-                const m = l.trim().match(/^(\w+):\s+(\d+)\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+(\d+)/)
-                if (m && m[1] !== "lo") { rx += parseInt(m[2]); tx += parseInt(m[3]) }
-            }
+            const counters = root._extractNetCounters(lines)
+            const rx = counters.rx, tx = counters.tx
             if (root._prevNet) {
                 const dt = (now - root._prevNet.ts) / 1000
                 root.netDown = "↓ " + root._fmtSpeed(Math.max(0, (rx - root._prevNet.rx) / dt))
@@ -338,7 +353,7 @@ Item {
         // ── Left column ───────────────────────────────────────────────────────
         Column {
             id: leftCol
-            width: (parent.width - parent.spacing) * 0.58
+            width: root._systemColumnWidth * 2 + parent.spacing
             spacing: 10
 
             // ── Metric cards: CPU · RAM · GPU · VRAM ─────────────────────────
@@ -406,49 +421,100 @@ Item {
             }
 
             // ── NET speed ─────────────────────────────────────────────────────
-            Rectangle {
+            Row {
                 width: parent.width
-                height: 70
-                radius: 16
-                color: root._panelColor
+                spacing: 10
 
-                Column {
-                    anchors { fill: parent; margins: 10 }
-                    spacing: 6
+                Rectangle {
+                    width: (parent.width - parent.spacing) / 2
+                    height: 48
+                    radius: 16
+                    color: root._panelColor
 
-                    Item {
-                        width: parent.width
-                        height: 14
-                        Text {
-                            anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
-                            text: "NET"; font.family: Theme.fontFamily
-                            font.pixelSize: 9; font.letterSpacing: 1.6; color: root._mutedText
-                        }
-                        Rectangle {
-                            anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                            width: 22; height: 8; radius: 4; color: root._trackColor
-                            Rectangle {
-                                width: 10; height: parent.height; topLeftRadius: 4; bottomLeftRadius: 4
-                                topRightRadius: 2; bottomRightRadius: 2; color: root._accentColor
+                    Column {
+                        anchors { fill: parent; margins: 10 }
+                        spacing: 4
+
+                        Item {
+                            width: parent.width
+                            height: 14
+                            Text {
+                                anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width - netStatus.width - 4
+                                text: "NET"; font.family: Theme.fontFamily
+                                font.pixelSize: 9; font.letterSpacing: 1.6; color: root._mutedText
+                                elide: Text.ElideRight
+                            }
+                            Text {
+                                id: netStatus
+                                anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                                text: "I/O"
+                                font.family: Theme.fontFamily; font.pixelSize: 10; font.bold: true
+                                color: root._textColor; horizontalAlignment: Text.AlignRight
                             }
                         }
-                    }
 
-                    Text { width: parent.width; text: root.netDown; font.family: Theme.fontFamily; font.pixelSize: 9; color: root._textColor }
-                    Text { width: parent.width; text: root.netUp;   font.family: Theme.fontFamily; font.pixelSize: 9; color: root._mutedText }
+                        Text {
+                            width: parent.width
+                            text: root.netDown + "   " + root.netUp
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 9
+                            color: root._textColor
+                            elide: Text.ElideRight
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: (parent.width - parent.spacing) / 2
+                    height: 48
+                    radius: 16
+                    color: root._panelColor
+
+                    Column {
+                        anchors { fill: parent; margins: 10 }
+                        spacing: 4
+
+                        Item {
+                            width: parent.width
+                            height: 14
+                            Text {
+                                anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width - wifiStatus.width - 4
+                                text: root._wifiTile ? root._wifiTile.label : "WI-FI"
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 9; font.letterSpacing: 1.4; color: root._mutedText
+                                elide: Text.ElideRight
+                            }
+                            Text {
+                                id: wifiStatus
+                                anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                                text: root._wifiTile && root._wifiTile.connected ? "ON" : "OFF"
+                                font.family: Theme.fontFamily; font.pixelSize: 10; font.bold: true
+                                color: root._textColor; horizontalAlignment: Text.AlignRight
+                            }
+                        }
+
+                        Text {
+                            width: parent.width
+                            text: root._wifiTile ? root._wifiTile.detail : "Offline"
+                            font.family: Theme.fontFamily; font.pixelSize: 9
+                            color: root._textColor; elide: Text.ElideRight
+                        }
+                    }
                 }
             }
 
-            // ── Network status: Ethernet · Wi-Fi · VPN ───────────────────────
+            // ── Network status: Ethernet · VPN ────────────────────────────────
             Row {
                 width: parent.width
                 spacing: 10
 
                 Repeater {
-                    model: root._netTiles
+                    model: root._secondaryNetTiles
                     delegate: Rectangle {
                         required property var modelData
-                        width: (parent.width - 20) / 3
+                        width: (parent.width - parent.spacing) / 2
                         height: 48
                         radius: 16
                         color: root._panelColor
@@ -496,7 +562,7 @@ Item {
 
         // ── Updates (full right column) ───────────────────────────────────────
         Rectangle {
-            width: (parent.width - parent.spacing) * 0.42
+            width: root._systemColumnWidth
             height: leftCol.implicitHeight
             radius: 16
             color: root._panelColor

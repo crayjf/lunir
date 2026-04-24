@@ -10,25 +10,41 @@ Item {
 
     property var moduleConfig: null
 
-    readonly property color _textColor: Theme.color(moduleConfig, "textColor", "#F8F8F2FF")
     readonly property color _accentColor: Theme.color(moduleConfig, "accentColor", "#FF79C6FF")
-    readonly property color _mutedText: Theme.textMuted
-    readonly property color _softText: Theme.textMuted
-    readonly property var _cfg: moduleConfig ? (moduleConfig.props || {}) : ({})
-    readonly property bool _nativePanel: _cfg.nativePanel === true
 
     readonly property string _wallpaperFolder: Config.wallpaper.folder || "~/Pictures/Wallpaper"
     readonly property string _currentWallpaper: Config.wallpaper.current || ""
     readonly property string _previewPath: (_selectedIdx >= 0 && _selectedIdx < _files.length) ? _files[_selectedIdx] : ""
     readonly property bool _hasSelection: _previewPath !== ""
-    readonly property bool _previewIsCurrent: _hasSelection && _previewPath === _currentWallpaper
+    readonly property bool _hasMultiple: _files.length > 1
+    readonly property string _previousPath: _hasMultiple && _selectedIdx >= 0
+        ? _files[(_selectedIdx - 1 + _files.length) % _files.length] : ""
+    readonly property string _nextPath: _hasMultiple && _selectedIdx >= 0
+        ? _files[(_selectedIdx + 1) % _files.length] : ""
+    readonly property bool _isAnimating: slideAnim.running
     property var _files: []
     property int _selectedIdx: -1
+    property int _animStartIdx: -1
+    property int _animDir: 0
+    property real _slideProgress: 0.0
 
-    function _basename(path) {
-        if (!path) return ""
-        const parts = String(path).split("/")
-        return parts.length > 0 ? parts[parts.length - 1] : path
+    function _wrapIndex(idx) {
+        if (_files.length <= 0) return -1
+        return (idx % _files.length + _files.length) % _files.length
+    }
+    function _pathAt(baseIdx, offset) {
+        const wrapped = _wrapIndex(baseIdx + offset)
+        return wrapped >= 0 ? _files[wrapped] : ""
+    }
+    function _shuffle(items) {
+        const shuffled = (items || []).slice()
+        for (let i = shuffled.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1))
+            const tmp = shuffled[i]
+            shuffled[i] = shuffled[j]
+            shuffled[j] = tmp
+        }
+        return shuffled
     }
 
     function _syncSelection(preferredPath) {
@@ -54,35 +70,21 @@ Item {
 
     function _selectRelative(step) {
         if (_files.length === 0) return
+        if (_isAnimating) return
         if (_selectedIdx < 0) {
             _selectIdx(0)
             return
         }
 
-        const next = (_selectedIdx + step + _files.length) % _files.length
-        _selectIdx(next)
-    }
-
-    function _selectRandom() {
-        if (_files.length === 0) return
-        if (_files.length === 1) {
-            _selectIdx(0)
-            return
-        }
-
-        let next = _selectedIdx
-        while (next === _selectedIdx)
-            next = Math.floor(Math.random() * _files.length)
-        _selectIdx(next)
+        _animStartIdx = _selectedIdx
+        _animDir = step < 0 ? -1 : 1
+        _slideProgress = 0
+        slideAnim.start()
     }
 
     function _applySelected() {
         if (_hasSelection)
             Config.updateWallpaper({ current: _previewPath })
-    }
-
-    function _applyRandom() {
-        _selectRandom()
     }
 
     Process {
@@ -97,7 +99,8 @@ Item {
         stdout: StdioCollector { id: scanStdio }
         onExited: {
             const previousPath = root._previewPath
-            root._files = scanStdio.text.trim().split("\n").filter(function(line) { return line.trim().length > 0 })
+            const scanned = scanStdio.text.trim().split("\n").filter(function(line) { return line.trim().length > 0 })
+            root._files = root._shuffle(scanned)
             root._syncSelection(previousPath)
         }
     }
@@ -124,26 +127,217 @@ Item {
     Keys.onReturnPressed: root._applySelected()
     Keys.onEnterPressed: root._applySelected()
 
+    SequentialAnimation {
+        id: slideAnim
+        NumberAnimation {
+            target: root
+            property: "_slideProgress"
+            from: 0
+            to: 1
+            duration: 220
+            easing.type: Easing.OutCubic
+        }
+        ScriptAction {
+            script: {
+                if (root._animDir !== 0 && root._animStartIdx >= 0)
+                    root._selectedIdx = root._wrapIndex(root._animStartIdx + root._animDir)
+                root._slideProgress = 0
+                root._animStartIdx = -1
+                root._animDir = 0
+            }
+        }
+    }
+
     Item {
         id: heroArea
         anchors.fill: parent
+        readonly property real _previewScale: 0.85
+        readonly property real _centerGap: 4
+        readonly property real _previewRadius: 18
+
+        function _lerp(a, b, t) { return a + (b - a) * t }
+        function _slotRect(name) {
+            switch (name) {
+            case "left":
+                return { x: leftPreviewWrap.x, y: leftPreviewWrap.y, w: leftPreviewWrap.width, h: leftPreviewWrap.height }
+            case "center":
+                return { x: mainPreview.x, y: mainPreview.y, w: mainPreview.width, h: mainPreview.height }
+            case "right":
+                return { x: rightPreviewWrap.x, y: rightPreviewWrap.y, w: rightPreviewWrap.width, h: rightPreviewWrap.height }
+            case "offLeft":
+                return {
+                    x: leftPreviewWrap.x - leftPreviewWrap.width - heroArea._centerGap,
+                    y: leftPreviewWrap.y,
+                    w: leftPreviewWrap.width,
+                    h: leftPreviewWrap.height
+                }
+            case "offRight":
+                return {
+                    x: rightPreviewWrap.x + rightPreviewWrap.width + heroArea._centerGap,
+                    y: rightPreviewWrap.y,
+                    w: rightPreviewWrap.width,
+                    h: rightPreviewWrap.height
+                }
+            default:
+                return { x: 0, y: previewFrame.y, w: 0, h: previewFrame.height }
+            }
+        }
+        function _mixRect(fromRect, toRect) {
+            return {
+                x: _lerp(fromRect.x, toRect.x, root._slideProgress),
+                y: _lerp(fromRect.y, toRect.y, root._slideProgress),
+                w: _lerp(fromRect.w, toRect.w, root._slideProgress),
+                h: _lerp(fromRect.h, toRect.h, root._slideProgress)
+            }
+        }
+        function _animatedRect(role) {
+            if (root._animDir > 0) {
+                if (role === "prev") return _mixRect(_slotRect("left"), _slotRect("offLeft"))
+                if (role === "current") return _mixRect(_slotRect("center"), _slotRect("left"))
+                if (role === "next") return _mixRect(_slotRect("right"), _slotRect("center"))
+                if (role === "incoming") return _mixRect(_slotRect("offRight"), _slotRect("right"))
+            } else if (root._animDir < 0) {
+                if (role === "next") return _mixRect(_slotRect("right"), _slotRect("offRight"))
+                if (role === "current") return _mixRect(_slotRect("center"), _slotRect("right"))
+                if (role === "prev") return _mixRect(_slotRect("left"), _slotRect("center"))
+                if (role === "incoming") return _mixRect(_slotRect("offLeft"), _slotRect("left"))
+            }
+            return _slotRect("center")
+        }
+        function _animatedPath(role) {
+            if (root._animStartIdx < 0) return ""
+            if (root._animDir > 0) {
+                if (role === "prev") return root._pathAt(root._animStartIdx, -1)
+                if (role === "current") return root._pathAt(root._animStartIdx, 0)
+                if (role === "next") return root._pathAt(root._animStartIdx, 1)
+                if (role === "incoming") return root._pathAt(root._animStartIdx, 2)
+            } else if (root._animDir < 0) {
+                if (role === "prev") return root._pathAt(root._animStartIdx, -1)
+                if (role === "current") return root._pathAt(root._animStartIdx, 0)
+                if (role === "next") return root._pathAt(root._animStartIdx, 1)
+                if (role === "incoming") return root._pathAt(root._animStartIdx, -2)
+            }
+            return ""
+        }
+
+        Item {
+            id: wallpaperContent
+            anchors.fill: parent
+
+            Item {
+                id: previewFrame
+                anchors.centerIn: parent
+                width: parent.width * heroArea._previewScale
+                height: parent.height * heroArea._previewScale
+            }
+
+            Item {
+                id: leftPreviewWrap
+                anchors.left: previewFrame.left
+                anchors.right: mainPreview.left
+                anchors.top: previewFrame.top
+                anchors.bottom: previewFrame.bottom
+                anchors.rightMargin: heroArea._centerGap
+                opacity: root._hasMultiple ? 1.0 : 0.0
+                visible: !root._isAnimating
+
+                ClippingRectangle {
+                    id: leftPreview
+                    anchors.fill: parent
+                    radius: heroArea._previewRadius
+                    color: Theme.surfaceRaised
+
+                    Image {
+                        anchors.fill: parent
+                        source: root._previousPath ? "file://" + root._previousPath : ""
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        visible: root._previousPath !== ""
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        visible: root._previousPath === ""
+                        color: Theme.surfaceRaised
+                    }
+                }
+
+                MouseArea {
+                    anchors.fill: leftPreview
+                    hoverEnabled: true
+                    enabled: root._hasMultiple
+                    onClicked: {
+                        root.forceActiveFocus()
+                        root._selectRelative(-1)
+                    }
+                    onWheel: (event) => {
+                        root._selectRelative(event.angleDelta.y < 0 ? 1 : -1)
+                        event.accepted = true
+                    }
+                }
+            }
+
+            Item {
+                id: rightPreviewWrap
+                anchors.left: mainPreview.right
+                anchors.right: previewFrame.right
+                anchors.top: previewFrame.top
+                anchors.bottom: previewFrame.bottom
+                anchors.leftMargin: heroArea._centerGap
+                opacity: root._hasMultiple ? 1.0 : 0.0
+                visible: !root._isAnimating
+
+                ClippingRectangle {
+                    id: rightPreview
+                    anchors.fill: parent
+                    radius: heroArea._previewRadius
+                    color: Theme.surfaceRaised
+
+                    Image {
+                        anchors.fill: parent
+                        source: root._nextPath ? "file://" + root._nextPath : ""
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        visible: root._nextPath !== ""
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        visible: root._nextPath === ""
+                        color: Theme.surfaceRaised
+                    }
+                }
+
+                MouseArea {
+                    anchors.fill: rightPreview
+                    hoverEnabled: true
+                    enabled: root._hasMultiple
+                    onClicked: {
+                        root.forceActiveFocus()
+                        root._selectRelative(1)
+                    }
+                    onWheel: (event) => {
+                        root._selectRelative(event.angleDelta.y < 0 ? 1 : -1)
+                        event.accepted = true
+                    }
+                }
+            }
 
             ClippingRectangle {
-                anchors.left: prevButton.right
-                anchors.right: nextButton.left
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-                anchors.leftMargin: 8
-                anchors.rightMargin: 8
-                radius: 18
+                id: mainPreview
+                anchors.horizontalCenter: previewFrame.horizontalCenter
+                anchors.top: previewFrame.top
+                anchors.bottom: previewFrame.bottom
+                width: Math.min(previewFrame.width, Math.round(height * 16 / 9))
+                radius: heroArea._previewRadius
                 color: Theme.surface
+                visible: !root._isAnimating
 
                 Image {
                     anchors.fill: parent
                     source: root._hasSelection ? "file://" + root._previewPath : ""
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true
-                    cache: false
                     visible: root._hasSelection
                 }
 
@@ -151,11 +345,6 @@ Item {
                     anchors.fill: parent
                     visible: !root._hasSelection
                     color: Theme.surfaceRaised
-                }
-
-                Rectangle {
-                    anchors.fill: parent
-                    color: root._hasSelection ? "#00000075" : "transparent"
                 }
 
                 Item {
@@ -181,12 +370,7 @@ Item {
             }
 
             MouseArea {
-                anchors.left: prevButton.right
-                anchors.right: nextButton.left
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-                anchors.leftMargin: 8
-                anchors.rightMargin: 8
+                anchors.fill: mainPreview
                 acceptedButtons: Qt.LeftButton
                 enabled: root._hasSelection
                 onClicked: {
@@ -199,126 +383,89 @@ Item {
                 }
             }
 
-            Rectangle {
-                id: randomChip
-                anchors.right: nextButton.left
-                anchors.bottom: parent.bottom
-                anchors.rightMargin: 18
-                anchors.bottomMargin: 10
-                width: randomLabel.implicitWidth + 18
-                height: 24
-                radius: 12
-                opacity: root._files.length > 0 ? 1.0 : 0.45
-                color: randomMouse.containsMouse && root._files.length > 0
-                    ? Qt.rgba(root._accentColor.r, root._accentColor.g, root._accentColor.b, 0.28)
-                    : Theme.track
+            Item {
+                anchors.fill: parent
+                visible: root._isAnimating
 
-                Text {
-                    id: randomLabel
-                    anchors.centerIn: parent
-                    text: "RANDOM"
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 8
-                    font.letterSpacing: 1.4
-                    color: root._textColor
-                }
+                ClippingRectangle {
+                    readonly property var rect: heroArea._animatedRect("prev")
+                    x: rect.x
+                    y: rect.y
+                    width: rect.w
+                    height: rect.h
+                    radius: heroArea._previewRadius
+                    color: Theme.surfaceRaised
+                    z: root._animDir < 0 ? 3 : 1
+                    visible: root._animDir < 0 || root._animDir > 0
 
-                MouseArea {
-                    id: randomMouse
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    enabled: root._files.length > 0
-                    onClicked: {
-                        root.forceActiveFocus()
-                        root._applyRandom()
-                    }
-                }
-            }
-
-            Rectangle {
-                id: prevButton
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-                width: 46
-                height: 58
-                radius: 14
-                opacity: root._files.length > 1 ? 1.0 : 0.38
-                color: prevMouse.containsMouse && root._files.length > 1
-                    ? Qt.rgba(root._accentColor.r, root._accentColor.g, root._accentColor.b, 0.18)
-                    : Theme.surfaceRaised
-
-                Canvas {
-                    anchors.centerIn: parent
-                    width: 14
-                    height: 18
-                    onPaint: {
-                        const ctx = getContext("2d")
-                        ctx.clearRect(0, 0, width, height)
-                        ctx.strokeStyle = root._textColor
-                        ctx.lineWidth = 2.2
-                        ctx.lineCap = "round"
-                        ctx.lineJoin = "round"
-                        ctx.beginPath()
-                        ctx.moveTo(10, 4)
-                        ctx.lineTo(5, 9)
-                        ctx.lineTo(10, 14)
-                        ctx.stroke()
+                    Image {
+                        anchors.fill: parent
+                        source: heroArea._animatedPath("prev") ? "file://" + heroArea._animatedPath("prev") : ""
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        visible: source !== ""
                     }
                 }
 
-                MouseArea {
-                    id: prevMouse
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    enabled: root._files.length > 1
-                    onClicked: {
-                        root.forceActiveFocus()
-                        root._selectRelative(-1)
-                    }
-                }
-            }
+                ClippingRectangle {
+                    readonly property var rect: heroArea._animatedRect("current")
+                    x: rect.x
+                    y: rect.y
+                    width: rect.w
+                    height: rect.h
+                    radius: heroArea._previewRadius
+                    color: Theme.surface
+                    z: 2
 
-            Rectangle {
-                id: nextButton
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                width: 46
-                height: 58
-                radius: 14
-                opacity: root._files.length > 1 ? 1.0 : 0.38
-                color: nextMouse.containsMouse && root._files.length > 1
-                    ? Qt.rgba(root._accentColor.r, root._accentColor.g, root._accentColor.b, 0.18)
-                    : Theme.surfaceRaised
-
-                Canvas {
-                    anchors.centerIn: parent
-                    width: 14
-                    height: 18
-                    onPaint: {
-                        const ctx = getContext("2d")
-                        ctx.clearRect(0, 0, width, height)
-                        ctx.strokeStyle = root._textColor
-                        ctx.lineWidth = 2.2
-                        ctx.lineCap = "round"
-                        ctx.lineJoin = "round"
-                        ctx.beginPath()
-                        ctx.moveTo(4, 4)
-                        ctx.lineTo(9, 9)
-                        ctx.lineTo(4, 14)
-                        ctx.stroke()
+                    Image {
+                        anchors.fill: parent
+                        source: heroArea._animatedPath("current") ? "file://" + heroArea._animatedPath("current") : ""
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        visible: source !== ""
                     }
+
                 }
 
-                MouseArea {
-                    id: nextMouse
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    enabled: root._files.length > 1
-                    onClicked: {
-                        root.forceActiveFocus()
-                        root._selectRelative(1)
+                ClippingRectangle {
+                    readonly property var rect: heroArea._animatedRect("next")
+                    x: rect.x
+                    y: rect.y
+                    width: rect.w
+                    height: rect.h
+                    radius: heroArea._previewRadius
+                    color: Theme.surfaceRaised
+                    z: root._animDir > 0 ? 3 : 1
+
+                    Image {
+                        anchors.fill: parent
+                        source: heroArea._animatedPath("next") ? "file://" + heroArea._animatedPath("next") : ""
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        visible: source !== ""
+                    }
+
+                }
+
+                ClippingRectangle {
+                    readonly property var rect: heroArea._animatedRect("incoming")
+                    x: rect.x
+                    y: rect.y
+                    width: rect.w
+                    height: rect.h
+                    radius: heroArea._previewRadius
+                    color: Theme.surfaceRaised
+                    z: 0
+
+                    Image {
+                        anchors.fill: parent
+                        source: heroArea._animatedPath("incoming") ? "file://" + heroArea._animatedPath("incoming") : ""
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        visible: source !== ""
                     }
                 }
             }
         }
+    }
 }
