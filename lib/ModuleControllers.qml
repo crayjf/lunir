@@ -1,14 +1,13 @@
 pragma Singleton
 import QtQuick 2.15
+import Quickshell
 
 // Runtime registry: module-id → { show, hide, toggle, isVisible }
 // Standalone modules register on Component.onCompleted.
 // IPC handler and overlay click-to-close use this.
 
-QtObject {
+Singleton {
     id: root
-
-    signal keyForward(int key, string text, int modifiers)
 
     property var _controllers: ({})
 

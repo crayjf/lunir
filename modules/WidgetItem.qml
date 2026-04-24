@@ -1,19 +1,33 @@
 import QtQuick 2.15
-import Quickshell 0.1
+import Quickshell
 import "../lib"
 
-// Per-widget Item inside OverlaySurface's widgetContainer.
+// Per-widget Item inside the desktop wallpaper surface.
 // Positioned absolutely (x/y). Animation is handled by the container.
-// Drag: Ctrl + left-button. Resize: left-button on any corner handle.
+// Drag: host-defined left-button gesture. Resize: right-button drag.
 Item {
     id: win
 
     property var moduleConfig: null
+    property int moveModifiers: Qt.NoModifier
+    property string gridControllerId: "desktop-grid-overlay"
+    property string hostControllerId: ""
+
+    function _applyLoaderProps() {
+        const item = moduleLoader.item
+        if (!item) return
+        item.moduleConfig = win.moduleConfig
+        if (item.hostControllerId !== undefined)
+            item.hostControllerId = win.hostControllerId
+    }
 
     readonly property int _minW: moduleConfig ? (moduleConfig.minWidth  ?? 150) : 150
     readonly property int _minH: moduleConfig ? (moduleConfig.minHeight ?? 40)  : 40
-    readonly property int _corner: 20
-
+    readonly property bool _spanMonitorWidth: !!(moduleConfig && moduleConfig.spanMonitorWidth)
+    readonly property bool _stickToBottom: !!(moduleConfig && moduleConfig.stickToBottom)
+    readonly property real _maxHeightRatio: moduleConfig && moduleConfig.maxHeightRatio !== undefined
+        ? Number(moduleConfig.maxHeightRatio)
+        : 0
     property real _x: 0
     property real _y: 0
     property real _w: _minW
@@ -26,28 +40,67 @@ Item {
     width: _w; height: _h
 
     // ── Config sync ────────────────────────────────────────────────────────────
-    function _syncFromConfig() {
-        if (!moduleConfig || _dragging || _resizing) return
-        _x = moduleConfig.x      ?? 0
-        _y = moduleConfig.y      ?? 0
-        _w = moduleConfig.width  ?? _minW
-        _h = moduleConfig.height ?? _minH
+    function _maxAllowedHeight() {
+        if (_maxHeightRatio > 0 && parent)
+            return Math.max(_minH, parent.height * _maxHeightRatio)
+        return Infinity
     }
 
-    onModuleConfigChanged: _syncFromConfig()
+    function _syncFromConfig() {
+        if (!moduleConfig || _dragging || _resizing) return
+        const maxH = _maxAllowedHeight()
+        _w = _spanMonitorWidth && parent
+            ? parent.width
+            : (moduleConfig.width ?? _minW)
+        _h = Math.min(moduleConfig.height ?? _minH, maxH)
+        _x = _spanMonitorWidth ? 0 : (moduleConfig.x ?? 0)
+        _y = _stickToBottom && parent
+            ? Math.max(0, parent.height - _h)
+            : (moduleConfig.y ?? 0)
+    }
+
+    onModuleConfigChanged: {
+        _syncFromConfig()
+        _applyLoaderProps()
+    }
+    onParentChanged: _syncFromConfig()
+    on_StickToBottomChanged: _syncFromConfig()
+    on_SpanMonitorWidthChanged: _syncFromConfig()
+    on_MaxHeightRatioChanged: _syncFromConfig()
+
+    Connections {
+        target: win.parent
+        function onWidthChanged() { win._syncFromConfig() }
+        function onHeightChanged() { win._syncFromConfig() }
+    }
 
     function snap(v) { return Math.round(v / 20) * 20 }
+
+    function _showGrid() {
+        if (win.gridControllerId) ModuleControllers.show(win.gridControllerId)
+    }
+
+    function _hideGrid() {
+        if (win.gridControllerId) ModuleControllers.hide(win.gridControllerId)
+    }
 
     // ── Visual chrome ──────────────────────────────────────────────────────────
     Rectangle {
         id: chrome
         anchors.fill: parent
-        color: Qt.rgba(Theme.widgetBackground.r, Theme.widgetBackground.g, Theme.widgetBackground.b,
-                       Theme.widgetBackground.a)
-        radius: Theme.widgetBorderRadius
-        border.color: Theme.widgetBorderColor
-        border.width: Theme.widgetBorderWidth
+        color: Theme.color(win.moduleConfig, "widgetBackground", "#282A36F0")
+        radius: Theme.number(win.moduleConfig, "widgetBorderRadius", 12)
+        border.color: Theme.color(win.moduleConfig, "widgetBorderColor", "#F8F8F21F")
+        border.width: Theme.number(win.moduleConfig, "widgetBorderWidth", 1)
         clip: true
+
+        RainbowBorder {
+            anchors.fill: parent
+            visible: Theme.isRainbowBorder(win.moduleConfig) && chrome.border.width > 0
+            radius: chrome.radius
+            lineWidth: chrome.border.width
+            z: 10
+        }
 
         Item {
             id: contentArea
@@ -56,25 +109,21 @@ Item {
             Loader {
                 id: moduleLoader
                 anchors.fill: parent
-                source: win.moduleConfig ? moduleUrl(win.moduleConfig.type) : ""
-                onLoaded: { if (item) item.moduleConfig = win.moduleConfig }
-            }
-
-            Binding {
-                target: moduleLoader.item
-                property: "moduleConfig"
-                value: win.moduleConfig
-                when: moduleLoader.status === Loader.Ready && moduleLoader.item !== null
+                source: win.moduleConfig ? ModuleRegistry.url(win.moduleConfig.type) : ""
+                onLoaded: win._applyLoaderProps()
             }
         }
     }
+
+    onHostControllerIdChanged: _applyLoaderProps()
 
     // ── Ctrl + drag to move ────────────────────────────────────────────────────
     DragHandler {
         id: moveDrag
         target: null
-        acceptedModifiers: Qt.ControlModifier
+        acceptedModifiers: win.moveModifiers
         acceptedButtons: Qt.LeftButton
+        grabPermissions: PointerHandler.ApprovesTakeOverByAnything
 
         property real _sx: 0
         property real _sy: 0
@@ -84,12 +133,10 @@ Item {
                 win._dragging = true
                 _sx = win._x
                 _sy = win._y
-                ModuleControllers.show("grid-overlay")
+                win._showGrid()
             } else {
                 win._dragging = false
-                ModuleControllers.hide("grid-overlay")
-                if (win.moduleConfig)
-                    Config.updateModule(win.moduleConfig.id, { x: win._x, y: win._y })
+                win._hideGrid()
             }
         }
 
@@ -97,154 +144,46 @@ Item {
             if (!active) return
             const dx = centroid.scenePosition.x - centroid.scenePressPosition.x
             const dy = centroid.scenePosition.y - centroid.scenePressPosition.y
-            win._x = snap(_sx + dx)
-            win._y = snap(_sy + dy)
+            if (!win._spanMonitorWidth)
+                win._x = snap(_sx + dx)
+            if (!win._stickToBottom)
+                win._y = snap(_sy + dy)
         }
     }
 
-    // ── Corner resize handles ──────────────────────────────────────────────────
+    // ── Right-drag resize ──────────────────────────────────────────────────────
+    DragHandler {
+        id: resizeDrag
+        target: null
+        acceptedModifiers: Qt.NoModifier
+        acceptedButtons: Qt.RightButton
+        grabPermissions: PointerHandler.CanTakeOverFromAnything
 
-    // Bottom-Right
-    Item {
-        x: win._w - win._corner; y: win._h - win._corner
-        width: win._corner; height: win._corner
-        z: 2
-        HoverHandler { cursorShape: Qt.SizeFDiagCursor }
-        DragHandler {
-            target: null; acceptedModifiers: Qt.NoModifier; acceptedButtons: Qt.LeftButton
-            property real _sw: 0; property real _sh: 0
-            onActiveChanged: {
-                if (active) { win._resizing = true; _sw = win._w; _sh = win._h; ModuleControllers.show("grid-overlay") }
-                else {
-                    win._resizing = false
-                    ModuleControllers.hide("grid-overlay")
-                    if (win.moduleConfig) Config.updateModule(win.moduleConfig.id,
-                        { x: win._x, y: win._y, width: win._w, height: win._h })
-                }
+        property real _sw: 0
+        property real _sh: 0
+
+        onActiveChanged: {
+            if (active) {
+                win._resizing = true
+                _sw = win._w
+                _sh = win._h
+                win._showGrid()
+            } else {
+                win._resizing = false
+                win._hideGrid()
             }
-            onCentroidChanged: {
-                if (!active) return
-                const dx = centroid.scenePosition.x - centroid.scenePressPosition.x
-                const dy = centroid.scenePosition.y - centroid.scenePressPosition.y
+        }
+
+        onCentroidChanged: {
+            if (!active) return
+            const dx = centroid.scenePosition.x - centroid.scenePressPosition.x
+            const dy = centroid.scenePosition.y - centroid.scenePressPosition.y
+            const nextH = snap(Math.max(win._minH, _sh + dy))
+            if (!win._spanMonitorWidth)
                 win._w = snap(Math.max(win._minW, _sw + dx))
-                win._h = snap(Math.max(win._minH, _sh + dy))
-            }
+            win._h = Math.min(nextH, win._maxAllowedHeight())
+            if (win._stickToBottom && win.parent)
+                win._y = Math.max(0, win.parent.height - win._h)
         }
-    }
-
-    // Bottom-Left
-    Item {
-        x: 0; y: win._h - win._corner
-        width: win._corner; height: win._corner
-        z: 2
-        HoverHandler { cursorShape: Qt.SizeBDiagCursor }
-        DragHandler {
-            target: null; acceptedModifiers: Qt.NoModifier; acceptedButtons: Qt.LeftButton
-            property real _sx: 0; property real _sw: 0; property real _sh: 0
-            onActiveChanged: {
-                if (active) { win._resizing = true; _sx = win._x; _sw = win._w; _sh = win._h; ModuleControllers.show("grid-overlay") }
-                else {
-                    win._resizing = false
-                    ModuleControllers.hide("grid-overlay")
-                    if (win.moduleConfig) Config.updateModule(win.moduleConfig.id,
-                        { x: win._x, y: win._y, width: win._w, height: win._h })
-                }
-            }
-            onCentroidChanged: {
-                if (!active) return
-                const dx = centroid.scenePosition.x - centroid.scenePressPosition.x
-                const dy = centroid.scenePosition.y - centroid.scenePressPosition.y
-                const nw = snap(Math.max(win._minW, _sw - dx))
-                win._x = _sx + (_sw - nw)
-                win._w = nw
-                win._h = snap(Math.max(win._minH, _sh + dy))
-            }
-        }
-    }
-
-    // Top-Right
-    Item {
-        x: win._w - win._corner; y: 0
-        width: win._corner; height: win._corner
-        z: 2
-        HoverHandler { cursorShape: Qt.SizeBDiagCursor }
-        DragHandler {
-            target: null; acceptedModifiers: Qt.NoModifier; acceptedButtons: Qt.LeftButton
-            property real _sy: 0; property real _sw: 0; property real _sh: 0
-            onActiveChanged: {
-                if (active) { win._resizing = true; _sy = win._y; _sw = win._w; _sh = win._h; ModuleControllers.show("grid-overlay") }
-                else {
-                    win._resizing = false
-                    ModuleControllers.hide("grid-overlay")
-                    if (win.moduleConfig) Config.updateModule(win.moduleConfig.id,
-                        { x: win._x, y: win._y, width: win._w, height: win._h })
-                }
-            }
-            onCentroidChanged: {
-                if (!active) return
-                const dx = centroid.scenePosition.x - centroid.scenePressPosition.x
-                const dy = centroid.scenePosition.y - centroid.scenePressPosition.y
-                const nh = snap(Math.max(win._minH, _sh - dy))
-                win._y = _sy + (_sh - nh)
-                win._w = snap(Math.max(win._minW, _sw + dx))
-                win._h = nh
-            }
-        }
-    }
-
-    // Top-Left
-    Item {
-        x: 0; y: 0
-        width: win._corner; height: win._corner
-        z: 2
-        HoverHandler { cursorShape: Qt.SizeFDiagCursor }
-        DragHandler {
-            target: null; acceptedModifiers: Qt.NoModifier; acceptedButtons: Qt.LeftButton
-            property real _sx: 0; property real _sy: 0; property real _sw: 0; property real _sh: 0
-            onActiveChanged: {
-                if (active) { win._resizing = true; _sx = win._x; _sy = win._y; _sw = win._w; _sh = win._h; ModuleControllers.show("grid-overlay") }
-                else {
-                    win._resizing = false
-                    ModuleControllers.hide("grid-overlay")
-                    if (win.moduleConfig) Config.updateModule(win.moduleConfig.id,
-                        { x: win._x, y: win._y, width: win._w, height: win._h })
-                }
-            }
-            onCentroidChanged: {
-                if (!active) return
-                const dx = centroid.scenePosition.x - centroid.scenePressPosition.x
-                const dy = centroid.scenePosition.y - centroid.scenePressPosition.y
-                const nw = snap(Math.max(win._minW, _sw - dx))
-                const nh = snap(Math.max(win._minH, _sh - dy))
-                win._x = _sx + (_sw - nw)
-                win._y = _sy + (_sh - nh)
-                win._w = nw
-                win._h = nh
-            }
-        }
-    }
-
-    // ── Module type → QML file ─────────────────────────────────────────────────
-    function moduleUrl(type) {
-        const map = {
-            "clock":         "ClockModule.qml",
-            "calendar":      "CalendarModule.qml",
-            "today":         "TodayModule.qml",
-            "tomorrow":      "TomorrowModule.qml",
-            "weather":       "WeatherModule.qml",
-            "perf":          "PerfModule.qml",
-            "media":         "MediaModule.qml",
-            "notifications": "NotificationsModule.qml",
-            "audio":         "AudioModule.qml",
-            "updates":       "UpdatesModule.qml",
-            "note":          "NoteModule.qml",
-            "launcher":      "LauncherModule.qml",
-            "network":       "NetworkModule.qml",
-            "wallpaper":     "WallpaperModule.qml",
-            "quote":         "QuoteModule.qml",
-            "garmin":        "GarminModule.qml",
-            "empty":         "EmptyModule.qml",
-        }
-        return map[type] || "EmptyModule.qml"
     }
 }

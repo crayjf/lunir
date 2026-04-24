@@ -4,6 +4,8 @@ import "../lib"
 Item {
     id: root
     property var moduleConfig: null
+    readonly property color _textColor: Theme.color(moduleConfig, "textColor", "#F8F8F2FF")
+    readonly property color _accentColor: Theme.color(moduleConfig, "accentColor", "#FF79C6FF")
 
     readonly property var _DAYS:   ["SUNDAY","MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY"]
     readonly property var _MONTHS: ["JANUARY","FEBRUARY","MARCH","APRIL","MAY","JUNE",
@@ -20,7 +22,7 @@ Item {
         const m = String(now.getMinutes()).padStart(2, "0")
         dayText  = _DAYS[now.getDay()]
         dateText = now.getDate() + " " + _MONTHS[now.getMonth()] + " " + now.getFullYear()
-        timeText = "- " + h + ":" + m + " -"
+        timeText = "-   " + h + ":" + m + "   -"
         dayFrac  = (now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()) / 86400
     }
 
@@ -43,21 +45,22 @@ Item {
             font.family: "Anurati"
             font.pixelSize: 68
             font.letterSpacing: 4
-            color: Theme.textColor
+            color: root._textColor
         }
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             text: root.dateText
             font.pixelSize: 15
             font.letterSpacing: 2
-            color: Qt.rgba(Theme.textColor.r, Theme.textColor.g, Theme.textColor.b, 0.7)
+            color: root._textColor
+            opacity: 0.7
         }
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             text: root.timeText
             font.family: "Anurati"
             font.pixelSize: 19
-            color: Theme.textColor
+            color: root._textColor
         }
     }
 
@@ -66,13 +69,15 @@ Item {
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom; margins: 16 }
         height: 6
         radius: 3
-        color: Qt.rgba(1,1,1,0.1)
+        // The trough should be a fixed subtle color so it doesn't vanish if the widget is transparent
+        color: Qt.rgba(1, 1, 1, 0.1)
+        border.width: 0
 
         Rectangle {
             width: parent.width * root.dayFrac
             height: parent.height
             radius: parent.radius
-            color: Theme.accentColor
+            color: root._accentColor
         }
     }
 }

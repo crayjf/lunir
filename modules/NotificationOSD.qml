@@ -1,106 +1,243 @@
 import QtQuick 2.15
-import Quickshell 0.1
-import Quickshell.Wayland 0.1
+import Quickshell
+import Quickshell.Wayland
 import "../lib"
 
-// Transient notification popup (top-left, auto-dismisses after 5 s).
-// Shown by NotificationService when a new notification arrives.
 PanelWindow {
     id: win
 
+    aboveWindows: true
+    focusable: false
     WlrLayershell.layer: WlrLayershell.Overlay
-    WlrLayershell.namespace: "lunir-qs"
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-    anchors { top: true; left: true }
+    WlrLayershell.namespace: Config.namespaceFor("notification")
+    anchors { top: true }
     exclusionMode: ExclusionMode.Normal
     color: "transparent"
 
     visible: false
 
-    readonly property var _cfg: Config.modules.find(function(m) { return m.type === "notifications" }) || null
+    readonly property int _w: 420
+    readonly property int _gap: 10
+    readonly property int _maxItems: 5
+    readonly property color _textColor: Theme.text
+    readonly property color _panelColor: Theme.surface
+    readonly property color _mutedText: Theme.textMuted
+    readonly property color _softText: Theme.textMuted
 
-    margins {
-        top:  _cfg ? (_cfg.y ?? 0) : 0
-        left: _cfg ? (_cfg.x ?? 0) : 0
+    property int _nextToken: 1
+
+    signal closeToken(int token)
+
+    margins { top: 20 }
+
+    implicitWidth: _w
+    implicitHeight: stack.implicitHeight
+
+    ListModel {
+        id: osdModel
+        dynamicRoles: true
     }
 
-    readonly property int _w: _cfg ? (_cfg.width ?? 520) : 520
+    function _removeToken(token) {
+        for (let i = 0; i < osdModel.count; i++) {
+            if (osdModel.get(i).token === token) {
+                osdModel.remove(i)
+                break
+            }
+        }
+        if (osdModel.count === 0)
+            win.visible = false
+    }
 
-    implicitWidth:  _w
-    implicitHeight: contentCol.implicitHeight + 16
+    function _removeNotificationId(id) {
+        for (let i = osdModel.count - 1; i >= 0; i--) {
+            if (osdModel.get(i).id === id)
+                osdModel.remove(i)
+        }
+        if (osdModel.count === 0)
+            win.visible = false
+    }
 
-    property real fadeOpacity: 0.0
-    Behavior on fadeOpacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-    onFadeOpacityChanged: { if (fadeOpacity <= 0.0) visible = false }
+    function _closeToken(token) {
+        closeToken(token)
+    }
 
-    // ── Content ───────────────────────────────────────────────────────────────
-    Rectangle {
+    function showNotification(n) {
+        osdModel.insert(0, {
+            token: _nextToken++,
+            id: n.id,
+            notification: n,
+            app: (n.appName || n.app || "").toUpperCase(),
+            summary: n.summary || "",
+            body: n.body || ""
+        })
+        while (osdModel.count > _maxItems)
+            osdModel.remove(osdModel.count - 1)
+        visible = true
+    }
+
+    Column {
+        id: stack
         width: win._w
-        height: contentCol.implicitHeight + 16
-        color: Qt.rgba(Theme.widgetBackground.r, Theme.widgetBackground.g, Theme.widgetBackground.b,
-                       Theme.widgetBackground.a * Theme.widgetOpacity * win.fadeOpacity)
-        radius: Theme.widgetBorderRadius
-        border.color: Theme.widgetBorderColor
-        border.width: Theme.widgetBorderWidth
+        spacing: win._gap
 
-        Column {
-            id: contentCol
-            anchors { left: parent.left; right: parent.right; top: parent.top; margins: 8 }
-            spacing: 3
+        Repeater {
+            model: osdModel
 
-            Text {
-                id: appText
-                text: ""
-                font.pixelSize: 10
-                font.letterSpacing: 1.5
-                color: Theme.accentColor
-                visible: text.length > 0
-            }
-            Text {
-                id: summaryText
-                text: ""
-                font.pixelSize: 13
-                color: Theme.textColor
-                wrapMode: Text.WordWrap
-                width: parent.width
-                visible: text.length > 0
-            }
-            Text {
-                id: bodyText
-                text: ""
-                font.pixelSize: 11
-                color: Qt.rgba(
-                    Theme.textColor.r, Theme.textColor.g,
-                    Theme.textColor.b, 0.7)
-                wrapMode: Text.WordWrap
-                width: parent.width
-                visible: text.length > 0
+            Item {
+                id: slot
+                required property int token
+                required property int id
+                required property var notification
+                required property string app
+                required property string summary
+                required property string body
+                property bool closing: false
+
+                width: win._w
+                height: frame.height
+
+                Behavior on y { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+                Connections {
+                    target: win
+                    function onCloseToken(closeToken) {
+                        if (closeToken === slot.token)
+                            slot.closing = true
+                    }
+                }
+
+                Rectangle {
+                    id: frame
+                    width: win._w
+                    height: Math.max(76, contentCol.implicitHeight + 28)
+                    radius: Theme.radiusLarge
+                    color: win._panelColor
+                    border.width: Theme.borderWidth
+                    border.color: Theme.border
+                    opacity: slot.closing ? 0.0 : 1.0
+
+                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                    onOpacityChanged: {
+                        if (slot.closing && opacity <= 0.0)
+                            win._removeToken(slot.token)
+                    }
+
+                    RainbowBorder {
+                        anchors.fill: parent
+                        visible: Theme.borderIsRainbow && Theme.borderWidth > 0
+                        radius: parent.radius
+                        lineWidth: Theme.borderWidth
+                    }
+
+                    Row {
+                        anchors.fill: parent
+                        anchors.margins: 14
+                        spacing: 12
+
+                        Rectangle {
+                            width: 40
+                            height: 40
+                            radius: Theme.radiusSmall
+                            anchors.top: parent.top
+                            color: Theme.surfaceRaised
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: slot.app.length > 0 ? slot.app.charAt(0) : "!"
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 15
+                                font.bold: true
+                                color: win._textColor
+                            }
+                        }
+
+                        Column {
+                            id: contentCol
+                            width: parent.width - 52
+                            spacing: 5
+
+                            Text {
+                                width: parent.width
+                                text: slot.app
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 9
+                                font.letterSpacing: 1.6
+                                color: win._mutedText
+                                elide: Text.ElideRight
+                                visible: text.length > 0
+                            }
+
+                            Text {
+                                width: parent.width
+                                text: slot.summary
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 14
+                                font.bold: true
+                                color: win._textColor
+                                wrapMode: Text.WordWrap
+                                maximumLineCount: 2
+                                elide: Text.ElideRight
+                                visible: text.length > 0
+                            }
+
+                            Text {
+                                width: parent.width
+                                text: slot.body
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 11
+                                lineHeight: 1.12
+                                color: win._softText
+                                wrapMode: Text.WordWrap
+                                maximumLineCount: 3
+                                elide: Text.ElideRight
+                                visible: text.length > 0
+                            }
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        hoverEnabled: true
+
+                        onClicked: (mouse) => {
+                            const notif = slot.notification
+                            if (!notif) {
+                                win._closeToken(slot.token)
+                                return
+                            }
+
+                            dismissTimer.stop()
+
+                            if (mouse.button === Qt.RightButton) {
+                                notif.dismiss()
+                                win._closeToken(slot.token)
+                                return
+                            }
+
+                            if (!NotificationService.invokePrimaryAction(notif))
+                                notif.dismiss()
+
+                            win._closeToken(slot.token)
+                        }
+                    }
+                }
+
+                Timer {
+                    id: dismissTimer
+                    interval: 5000
+                    repeat: false
+                    running: !slot.closing
+                    onTriggered: win._closeToken(slot.token)
+                }
             }
         }
     }
 
-    // ── Dismiss timer ─────────────────────────────────────────────────────────
-    Timer {
-        id: dismissTimer
-        interval: 5000
-        repeat: false
-        onTriggered: win.fadeOpacity = 0.0
-    }
-
-    // ── Show ──────────────────────────────────────────────────────────────────
-    function showNotification(n) {
-        if (ModuleControllers.isVisible("overlay")) return
-        dismissTimer.restart()
-        appText.text     = (n.appName || n.app || "").toUpperCase()
-        summaryText.text = n.summary || ""
-        bodyText.text    = n.body    || ""
-        visible      = true
-        fadeOpacity  = 1.0
-    }
-
-    // React to new notifications from NotificationService
     Connections {
         target: NotificationService
         function onNotificationAdded(n) { win.showNotification(n) }
+        function onNotificationRemoved(id) { win._removeNotificationId(id) }
     }
 }

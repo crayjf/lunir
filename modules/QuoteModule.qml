@@ -1,10 +1,12 @@
 import QtQuick 2.15
-import Quickshell.Io 0.1
+import Quickshell
+import Quickshell.Io
 import "../lib"
 
 Item {
     id: root
     property var moduleConfig: null
+    readonly property color _textColor: Theme.color(moduleConfig, "textColor", "#F8F8F2FF")
 
     property var   _pool: []
     property int   _idx: 0
@@ -22,11 +24,12 @@ Item {
 
     property string quoteText:  "…"
     property string authorText: ""
+    readonly property string _cachePath: Quickshell.dataPath("quote-cache.json")
 
     // ── Cache ─────────────────────────────────────────────────────────────────
     Process {
         id: readCacheProc
-        command: ["sh", "-c", "cat \"$HOME/.local/share/lunir/quote-cache.json\""]
+        command: ["cat", root._cachePath]
         running: false
         stdout: StdioCollector { id: readCacheStdio }
         onExited: (code) => {
@@ -81,8 +84,8 @@ Item {
         id: saveCacheProc
         property string content: ""
         command: ["sh", "-c",
-            "mkdir -p \"$HOME/.local/share/lunir\" && printf '%s' \"$1\" > \"$HOME/.local/share/lunir/quote-cache.json\"",
-            "sh", saveCacheProc.content]
+            "mkdir -p \"$(dirname \"$1\")\" && printf '%s' \"$2\" > \"$1\"",
+            "sh", root._cachePath, saveCacheProc.content]
         running: false
     }
 
@@ -158,8 +161,9 @@ Item {
         Text {
             id: quoteLabel
             text: root.quoteText
+            font.family: Theme.fontFamily
             font.pixelSize: 13
-            color: Theme.textColor
+            color: root._textColor
             wrapMode: Text.WordWrap
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
@@ -167,9 +171,10 @@ Item {
 
         Text {
             text: root.authorText
+            font.family: Theme.fontFamily
             font.pixelSize: 11
             font.letterSpacing: 1
-            color: Qt.rgba(Theme.textColor.r, Theme.textColor.g, Theme.textColor.b, 0.6)
+            color: Qt.rgba(root._textColor.r, root._textColor.g, root._textColor.b, 0.6)
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
         }

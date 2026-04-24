@@ -1,120 +1,153 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
-import Quickshell 0.1
-import Quickshell.Wayland 0.1
-import Quickshell.Io 0.1
+import Quickshell
+import Quickshell.Services.Pipewire
+import Quickshell.Wayland
 import "../lib"
 
-// Transient volume indicator — shown briefly on volume key presses.
-// Registered with ModuleControllers as "volume-osd".
 PanelWindow {
     id: win
 
+    aboveWindows: true
+    focusable: false
     WlrLayershell.layer: WlrLayershell.Overlay
-    WlrLayershell.namespace: "lunir-qs"
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-    anchors { top: true; left: true }
+    WlrLayershell.namespace: Config.namespaceFor("volume")
+    anchors { bottom: true }
     exclusionMode: ExclusionMode.Normal
     color: "transparent"
 
-    implicitWidth:  _osdW
-    implicitHeight: _osdH
-
     visible: false
+    implicitWidth: 360
+    implicitHeight: 52
 
-    readonly property var _audioCfg: Config.modules.find(function(m) { return m.type === "audio" }) || null
-    readonly property int _osdW: _audioCfg ? (_audioCfg.width  ?? 440) : 440
-    readonly property int _osdH: _audioCfg ? (_audioCfg.height ?? 44)  : 44
+    margins { bottom: 34 }
 
-    margins {
-        top:  _audioCfg ? (_audioCfg.y ?? 0) : 0
-        left: _audioCfg ? (_audioCfg.x ?? 0) : 0
-    }
+    readonly property var _sink: Pipewire.defaultAudioSink
+    readonly property var _sinkAudio: _sink ? _sink.audio : null
+    readonly property color _textColor: Theme.text
+    readonly property color _accentColor: Theme.accent
+    readonly property color _panelColor: Theme.surface
+    readonly property color _trackColor: Theme.track
+    readonly property color _mutedText: Theme.textMuted
 
     property real fadeOpacity: 0.0
-    Behavior on fadeOpacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
-    onFadeOpacityChanged: { if (fadeOpacity <= 0.0) visible = false }
+    property int volumeLevel: _sinkAudio ? Math.round((_sinkAudio.volume || 0) * 100) : 0
+    property bool volumeMuted: _sinkAudio ? !!_sinkAudio.muted : false
 
-    // ── Content ───────────────────────────────────────────────────────────────
+    PwObjectTracker {
+        objects: [ win._sink ]
+    }
+
+    Behavior on fadeOpacity {
+        NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+    }
+
+    onFadeOpacityChanged: {
+        if (fadeOpacity <= 0.0) visible = false
+    }
+
     Rectangle {
         id: frame
-        width: win._osdW; height: win._osdH
-        color: Qt.rgba(Theme.widgetBackground.r, Theme.widgetBackground.g, Theme.widgetBackground.b,
-                       Theme.widgetBackground.a * Theme.widgetOpacity * win.fadeOpacity)
-        radius: Theme.widgetBorderRadius
-        border.color: Theme.widgetBorderColor
-        border.width: Theme.widgetBorderWidth
+        anchors.fill: parent
+        radius: Theme.radiusLarge
+        color: Qt.rgba(win._panelColor.r, win._panelColor.g, win._panelColor.b, win._panelColor.a * win.fadeOpacity)
+        border.width: Theme.borderWidth
+        border.color: Qt.rgba(Theme.border.r, Theme.border.g, Theme.border.b, Theme.border.a * win.fadeOpacity)
+        opacity: win.fadeOpacity
+
+        RainbowBorder {
+            anchors.fill: parent
+            visible: Theme.borderIsRainbow && Theme.borderWidth > 0
+            radius: parent.radius
+            lineWidth: Theme.borderWidth
+        }
 
         Row {
-            anchors { fill: parent; margins: 8 }
-            spacing: 10
-
-            Text {
-                id: muteIcon
-                text: "🔊"
-                font.pixelSize: 16
-                color: Theme.textColor
-                verticalAlignment: Text.AlignVCenter
-                height: parent.height
-            }
+            anchors.fill: parent
+            anchors.leftMargin: 12
+            anchors.rightMargin: 14
+            anchors.topMargin: 10
+            anchors.bottomMargin: 10
+            spacing: 12
 
             Rectangle {
-                id: barBg
-                height: 6
-                width: parent.width - muteIcon.width - volLabel.width - 28
+                id: iconButton
+                width: 32
+                height: 32
+                radius: Theme.radiusSmall
                 anchors.verticalCenter: parent.verticalCenter
-                color: Qt.rgba(1,1,1,0.12)
-                radius: 3
+                color: win.volumeMuted ? Theme.surfaceHover : Theme.surfaceRaised
 
-                Rectangle {
-                    id: barFill
-                    height: parent.height
-                    width: parent.width * (volumeLevel / 100)
-                    color: Theme.accentColor
-                    radius: parent.radius
+                Canvas {
+                    anchors.centerIn: parent
+                    width: 24
+                    height: 24
+
+                    onPaint: {
+                        const ctx = getContext("2d")
+                        ctx.clearRect(0, 0, width, height)
+
+                        const c = win.volumeMuted ? win._mutedText : win._textColor
+                        const r = Math.round(c.r * 255)
+                        const g = Math.round(c.g * 255)
+                        const b = Math.round(c.b * 255)
+                        const a = Math.max(0, Math.min(1, c.a))
+                        ctx.strokeStyle = "rgba(" + r + "," + g + "," + b + "," + a + ")"
+                        ctx.fillStyle = ctx.strokeStyle
+                        ctx.lineWidth = 2
+                        ctx.lineCap = "round"
+                        ctx.lineJoin = "round"
+
+                        ctx.beginPath()
+                        ctx.moveTo(4, 10)
+                        ctx.lineTo(8, 10)
+                        ctx.lineTo(13, 6)
+                        ctx.lineTo(13, 18)
+                        ctx.lineTo(8, 14)
+                        ctx.lineTo(4, 14)
+                        ctx.closePath()
+                        ctx.fill()
+
+                        if (win.volumeMuted || win.volumeLevel <= 0) {
+                            ctx.beginPath()
+                            ctx.moveTo(16, 8)
+                            ctx.lineTo(21, 16)
+                            ctx.moveTo(21, 8)
+                            ctx.lineTo(16, 16)
+                            ctx.stroke()
+                            return
+                        }
+
+                        ctx.beginPath()
+                        ctx.arc(14, 12, 4, -0.85, 0.85, false)
+                        ctx.stroke()
+
+                        if (win.volumeLevel > 45) {
+                            ctx.beginPath()
+                            ctx.arc(14, 12, 7, -0.85, 0.85, false)
+                            ctx.stroke()
+                        }
+                    }
                 }
             }
 
-            Text {
-                id: volLabel
-                text: volumeLevel + "%"
-                font.pixelSize: 11
-                font.letterSpacing: 0.5
-                color: Theme.textColor
-                verticalAlignment: Text.AlignVCenter
-                height: parent.height
-                width: 36
-                horizontalAlignment: Text.AlignRight
+            Rectangle {
+                width: parent.width - iconButton.width - parent.spacing
+                height: 16
+                radius: 8
+                anchors.verticalCenter: parent.verticalCenter
+                color: win._trackColor
+
+                Rectangle {
+                    width: Math.max(0, Math.min(parent.width, parent.width * (win.volumeLevel / 100)))
+                    height: parent.height
+                    radius: parent.radius
+                    color: win.volumeMuted ? win._mutedText : win._accentColor
+                }
             }
         }
     }
 
-    // ── Volume state ──────────────────────────────────────────────────────────
-    property int  volumeLevel: 0
-    property bool volumeMuted: false
-
-    Process {
-        id: readProc
-        command: ["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"]
-        running: false
-
-        stdout: StdioCollector {
-            id: readStdio
-        }
-
-        onExited: {
-            const out = readStdio.text.trim()
-            const m = out.match(/Volume:\s*([\d.]+)/)
-            win.volumeLevel = m ? Math.min(100, Math.round(parseFloat(m[1]) * 100)) : 0
-            win.volumeMuted = out.includes("[MUTED]")
-            muteIcon.text = win.volumeMuted ? "🔇"
-                : win.volumeLevel > 66 ? "🔊"
-                : win.volumeLevel > 33 ? "🔉"
-                : "🔈"
-        }
-    }
-
-    // ── Dismiss timer ─────────────────────────────────────────────────────────
     Timer {
         id: dismissTimer
         interval: 1200
@@ -122,12 +155,9 @@ PanelWindow {
         onTriggered: win.fadeOpacity = 0.0
     }
 
-    // ── Show / hide ───────────────────────────────────────────────────────────
     function _show() {
-        if (ModuleControllers.isVisible("overlay")) return
         dismissTimer.restart()
-        readProc.running = true
-        visible     = true
+        visible = true
         fadeOpacity = 1.0
     }
 
@@ -138,12 +168,14 @@ PanelWindow {
 
     Component.onCompleted: {
         ModuleControllers.register("volume-osd", {
-            "show":      function() { win._show() },
-            "hide":      function() { win._hide() },
-            "toggle":    function() { if (win.fadeOpacity > 0) win._hide(); else win._show() },
+            "show": function() { win._show() },
+            "hide": function() { win._hide() },
+            "toggle": function() { if (win.fadeOpacity > 0) win._hide(); else win._show() },
             "isVisible": function() { return win.fadeOpacity > 0 }
         })
     }
 
-    Component.onDestruction: { ModuleControllers.unregister("volume-osd") }
+    Component.onDestruction: {
+        ModuleControllers.unregister("volume-osd")
+    }
 }

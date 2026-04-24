@@ -1,28 +1,36 @@
 import QtQuick 2.15
-import Quickshell.Io 0.1
+import QtQuick.Controls 2.15
+import Quickshell.Io
 import "../lib"
 
 Item {
     id: root
     property var moduleConfig: null
+    readonly property color _textColor:   Theme.color(moduleConfig, "textColor", "#F8F8F2FF")
+    readonly property color _accentColor: Theme.color(moduleConfig, "accentColor", "#FF79C6FF")
+    readonly property color _mutedText:   Theme.textMuted
 
-    readonly property var _cfg:        moduleConfig ? (moduleConfig.props || {}) : {}
-    readonly property var _sources:    _cfg.calendars     || []
+    readonly property var _cfg:         moduleConfig ? (moduleConfig.props || {}) : {}
+    readonly property var _sources:     _cfg.calendars || []
     readonly property bool _showColors: _cfg.showColors !== false
     readonly property int _refreshMins: _cfg.refreshInterval || 30
 
-    property var _events:    []
-    property int _viewYear:  new Date().getFullYear()
-    property int _viewMonth: new Date().getMonth()
-    property var _cells:     []
+    property var _events:     []
+    property int _viewYear:   new Date().getFullYear()
+    property int _viewMonth:  new Date().getMonth()
+    property var _cells:      []
+    property var _displayDay: new Date()
+    readonly property var _displayEvents: _eventsForDay(_displayDay)
+    readonly property int _gridRows: Math.max(1, Math.ceil(_cells.length / 7))
 
     readonly property var _MONTHS: ["JANUARY","FEBRUARY","MARCH","APRIL","MAY","JUNE",
                                      "JULY","AUGUST","SEPTEMBER","OCTOBER","NOVEMBER","DECEMBER"]
+    readonly property var _DAYS:   ["SUNDAY","MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY"]
     readonly property var _DOW:    ["MON","TUE","WED","THU","FRI","SAT","SUN"]
     readonly property var _GCAL:   ({
-        "tomato":"#d50000","flamingo":"#e67c73","tangerine":"#f4511e","banana":"#f6bf26",
-        "sage":"#33b679","basil":"#0b8043","peacock":"#039be5","blueberry":"#3f51b5",
-        "lavender":"#7986cb","grape":"#8e24aa","graphite":"#616161"
+        "tomato":"#D50000FF","flamingo":"#E67C73FF","tangerine":"#F4511EFF","banana":"#F6BF26FF",
+        "sage":"#33B679FF","basil":"#0B8043FF","peacock":"#039BE5FF","blueberry":"#3F51B5FF",
+        "lavender":"#7986CBFF","grape":"#8E24AAFF","graphite":"#616161FF"
     })
 
     // ── ICS fetch ─────────────────────────────────────────────────────────────
@@ -35,21 +43,15 @@ Item {
         onExited: root._parseAll(fetchStdio.text)
     }
 
-    function _buildFetchCmd() {
-        if (!_sources || _sources.length === 0) return ""
+    function _fetchAll() {
+        if (!_sources || _sources.length === 0) { root._buildGrid(); return }
         const parts = []
         for (const src of _sources) {
-            const color = src.color || "#7986cb"
+            const color = src.color || "#7986CBFF"
             parts.push("printf '%s\\n' '---SEP:" + color + "---'")
             parts.push("curl -sL --max-time 15 '" + src.url.replace(/'/g, "'\\''") + "'")
         }
-        return parts.join("; ")
-    }
-
-    function _fetchAll() {
-        const cmd = _buildFetchCmd()
-        if (!cmd) { root._buildGrid(); return }
-        fetchProc._cmd = cmd
+        fetchProc._cmd = parts.join("; ")
         fetchProc.running = true
     }
 
@@ -99,8 +101,7 @@ Item {
     }
 
     function _parseICS(text, defaultColor) {
-        const unfolded = text.replace(/\r?\n[ \t]/g,"")
-        const lines = unfolded.split(/\r?\n/)
+        const lines = text.replace(/\r?\n[ \t]/g,"").split(/\r?\n/)
         const base = []; let inEvent = false; let ev = {}
         for (const line of lines) {
             if (line === "BEGIN:VEVENT") { inEvent = true; ev = {color:defaultColor,allDay:false,rrule:""}; continue }
@@ -130,11 +131,74 @@ Item {
 
     function _parseAll(raw) {
         const allEvents = []
-        const chunks = raw.split(/^---SEP:(#[0-9a-fA-F]{6})---$/m)
+        const chunks = raw.split(/^---SEP:(#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?)---$/m)
         for (let i = 1; i+1 < chunks.length; i += 2)
             allEvents.push(..._parseICS(chunks[i+1], chunks[i].trim()))
         root._events = allEvents
         root._buildGrid()
+    }
+
+    function _eventsForDay(day) {
+        if (!day) return []
+        const start = new Date(day.getFullYear(), day.getMonth(), day.getDate())
+        const end   = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 23, 59, 59)
+        return root._events.filter(function(ev) {
+            if (ev.allDay) return ev.start <= end && ev.end > start
+            return ev.start >= start && ev.start <= end
+        }).sort(function(a, b) {
+            return (+b.allDay - +a.allDay) || (a.start.getTime() - b.start.getTime())
+        })
+    }
+
+    function _eventTime(ev) {
+        if (!ev) return ""
+        if (ev.allDay) return "ALL DAY"
+        const h = String(ev.start.getHours()).padStart(2, "0")
+        const m = String(ev.start.getMinutes()).padStart(2, "0")
+        return h + ":" + m
+    }
+
+    function _eventColor(ev) {
+        return root._showColors && ev && ev.color
+            ? Theme.parse(ev.color, "#7986CBFF")
+            : Qt.rgba(root._textColor.r, root._textColor.g, root._textColor.b, 0.4)
+    }
+
+    function _sameDay(a, b) {
+        return a && b &&
+            a.getFullYear() === b.getFullYear() &&
+            a.getMonth()    === b.getMonth()    &&
+            a.getDate()     === b.getDate()
+    }
+
+    function _dayHeader() {
+        return _sameDay(_displayDay, new Date()) ? "TODAY" : root._DAYS[_displayDay.getDay()]
+    }
+
+    function _setDisplayDay(day) {
+        root._displayDay = day
+        root._buildGrid()
+    }
+
+    function _resetDisplayDay() {
+        const today = new Date()
+        root._displayDay = today
+        root._viewYear  = today.getFullYear()
+        root._viewMonth = today.getMonth()
+        root._buildGrid()
+    }
+
+    function _shiftMonth(delta) {
+        root._viewMonth += delta
+        while (root._viewMonth > 11) { root._viewMonth -= 12; root._viewYear++ }
+        while (root._viewMonth < 0)  { root._viewMonth += 12; root._viewYear-- }
+        root._buildGrid()
+    }
+
+    function _scrollMonthFromDelta(angleY, pixelY) {
+        const delta = angleY !== 0 ? angleY : pixelY
+        if (delta === 0) return
+        root._shiftMonth(delta < 0 ? 1 : -1)
     }
 
     // ── Grid builder ──────────────────────────────────────────────────────────
@@ -144,7 +208,7 @@ Item {
         const dim      = new Date(_viewYear, _viewMonth+1, 0).getDate()
         const mStart   = new Date(_viewYear, _viewMonth, 1)
         const mEnd     = new Date(_viewYear, _viewMonth+1, 0, 23, 59, 59)
-        const sel      = SelectedDay.selectedDay
+        const sel      = root._displayDay
 
         const byDate = {}
         for (let d = 1; d <= dim; d++) byDate[d] = []
@@ -177,111 +241,256 @@ Item {
         root._cells = cells
     }
 
-    Connections {
-        target: SelectedDay
-        function onDayChanged() { root._buildGrid() }
-    }
-
     Timer {
         interval: _refreshMins * 60000; repeat: true
         running: root.visible; triggeredOnStart: true
         onTriggered: root._fetchAll()
     }
 
-    WheelHandler {
-        target: null
-        onWheel: (event) => {
-            if (event.angleDelta.y < 0) {
-                root._viewMonth++
-                if (root._viewMonth > 11) { root._viewMonth = 0; root._viewYear++ }
-            } else {
-                root._viewMonth--
-                if (root._viewMonth < 0) { root._viewMonth = 11; root._viewYear-- }
-            }
-            root._buildGrid()
-        }
-    }
+    onVisibleChanged: if (visible) root._resetDisplayDay()
+    Component.onCompleted: root._resetDisplayDay()
 
     // ── UI ────────────────────────────────────────────────────────────────────
-    Column {
-        anchors { fill: parent; margins: 8 }
-        spacing: 5
+    Rectangle {
+        anchors.fill: parent
+        radius: Theme.radiusLarge
+        color: Theme.surface
 
-        Text {
-            text: root._MONTHS[root._viewMonth] + "  " + root._viewYear
-            font.pixelSize: 11; font.letterSpacing: 2
-            color: Theme.textColor
-            anchors.horizontalCenter: parent.horizontalCenter
+        WheelHandler {
+            target: null
+            onWheel: (event) => root._scrollMonthFromDelta(event.angleDelta.y, event.pixelDelta.y)
         }
 
-        // DOW headers
         Row {
-            width: parent.width
-            Repeater {
-                model: root._DOW
-                delegate: Text {
-                    width: parent.width / 7
-                    text: modelData; font.pixelSize: 9; font.letterSpacing: 1
-                    color: Qt.rgba(Theme.textColor.r,Theme.textColor.g,Theme.textColor.b,0.45)
-                    horizontalAlignment: Text.AlignHCenter
+            anchors { fill: parent; margins: 10 }
+            spacing: 12
+
+            // ── Left: Today / event list ──────────────────────────────────────
+            Column {
+                width: parent.width - parent.spacing - Math.round((parent.width - parent.spacing) * 0.6)
+                height: parent.height
+                spacing: 8
+
+                Item {
+                    width: parent.width
+                    height: 18
+
+                    Text {
+                        anchors.left: parent.left
+                        anchors.right: dayCount.left
+                        anchors.rightMargin: 8
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: root._dayHeader()
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 9
+                        font.letterSpacing: 1.6
+                        color: root._mutedText
+                        elide: Text.ElideRight
+                    }
+
+                    Text {
+                        id: dayCount
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 20
+                        text: String(root._displayEvents.length)
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 9
+                        color: root._textColor
+                        horizontalAlignment: Text.AlignRight
+                    }
                 }
-            }
-        }
 
-        // Calendar grid
-        Grid {
-            id: calGrid
-            columns: 7
-            width: parent.width
-            rowSpacing: 2; columnSpacing: 0
-
-            Repeater {
-                model: root._cells
-                delegate: Rectangle {
-                    required property var modelData
-                    required property int index
-                    property var cell: modelData
-
-                    width:  calGrid.width / 7
-                    height: 64
-                    color: cell.isSel ? Qt.rgba(Theme.accentColor.r,Theme.accentColor.g,Theme.accentColor.b,0.25)
-                         : cell.isToday ? Qt.rgba(1,1,1,0.08) : "transparent"
-                    radius: 3
+                ScrollView {
+                    id: eventScroll
+                    width: parent.width
+                    height: parent.height - y
+                    clip: true
+                    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                    ScrollBar.vertical.policy: root._displayEvents.length > 3 ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
 
                     Column {
-                        anchors { fill: parent; margins: 3 }
-                        spacing: 2
-                        visible: cell.day > 0
+                        width: eventScroll.availableWidth
+                        spacing: 6
 
-                        Text {
-                            text: cell.day
-                            font.pixelSize: 10
-                            font.bold: cell.isToday
-                            color: cell.isToday ? Theme.accentColor : Theme.textColor
+                        Rectangle {
+                            width: parent.width
+                            height: 30
+                            radius: 12
+                            visible: root._displayEvents.length === 0
+                            color: Theme.surfaceRaised
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: "NO EVENTS"
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 9
+                                font.letterSpacing: 1.2
+                                color: root._mutedText
+                            }
                         }
 
                         Repeater {
-                            model: cell.events
+                            model: root._displayEvents
+
                             delegate: Rectangle {
                                 required property var modelData
-                                width: parent.width - 2; height: 13; radius: 2
-                                color: root._showColors ? modelData.color : Qt.rgba(1,1,1,0.4)
-                                clip: true
-                                Text {
-                                    anchors { fill: parent; leftMargin: 3 }
-                                    text: modelData.summary
-                                    font.pixelSize: 11; color: "white"
-                                    elide: Text.ElideRight
-                                    verticalAlignment: Text.AlignVCenter
+                                width: parent.width
+                                height: 32
+                                radius: 12
+                                color: Theme.surfaceRaised
+
+                                Row {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 8
+                                    anchors.rightMargin: 8
+                                    spacing: 7
+
+                                    Rectangle {
+                                        width: 3; height: 16; radius: 1.5
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        color: root._eventColor(modelData)
+                                    }
+
+                                    Column {
+                                        width: parent.width - 10
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: 1
+
+                                        Text {
+                                            width: parent.width
+                                            text: root._eventTime(modelData)
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 8
+                                            font.letterSpacing: 1.1
+                                            color: root._mutedText
+                                            elide: Text.ElideRight
+                                        }
+
+                                        Text {
+                                            width: parent.width
+                                            text: modelData.summary
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 10
+                                            color: root._textColor
+                                            elide: Text.ElideRight
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
+                }
+            }
 
-                    MouseArea {
-                        anchors.fill: parent
-                        enabled: cell.day > 0
-                        onClicked: SelectedDay.setSelectedDay(new Date(root._viewYear, root._viewMonth, cell.day))
+            // ── Right: Calendar grid ──────────────────────────────────────────
+            Column {
+                width: Math.round((parent.width - parent.spacing) * 0.6)
+                height: parent.height
+                spacing: 7
+
+                Item {
+                    width: parent.width
+                    height: 18
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: root._MONTHS[root._viewMonth]
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 9
+                        font.letterSpacing: 1.6
+                        color: root._mutedText
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+
+                    Text {
+                        id: yearLabel
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 20
+                        text: root._viewYear
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 9
+                        color: root._textColor
+                        horizontalAlignment: Text.AlignRight
+                    }
+                }
+
+                Row {
+                    width: parent.width
+                    height: 12
+
+                    Repeater {
+                        model: root._DOW
+                        delegate: Text {
+                            width: parent.width / 7
+                            text: modelData.substring(0, 1)
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 8
+                            color: root._mutedText
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+                    }
+                }
+
+                Grid {
+                    id: calGrid
+                    columns: 7
+                    width: parent.width
+                    height: parent.height - 44
+                    rowSpacing: 3
+                    columnSpacing: 3
+
+                    Repeater {
+                        model: root._cells
+
+                        delegate: Rectangle {
+                            required property var modelData
+                            property var cell: modelData
+
+                            width: (calGrid.width - calGrid.columnSpacing * 6) / 7
+                            height: (calGrid.height - calGrid.rowSpacing * (root._gridRows - 1)) / root._gridRows
+                            radius: 8
+                            color: cell.isSel
+                                ? Qt.rgba(root._accentColor.r, root._accentColor.g, root._accentColor.b, 0.24)
+                                : cell.isToday
+                                    ? Qt.rgba(root._accentColor.r, root._accentColor.g, root._accentColor.b, 0.14)
+                                    : cell.events.length > 0
+                                        ? Theme.surfaceRaised
+                                        : "transparent"
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: cell.day > 0 ? String(cell.day) : ""
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 10
+                                font.bold: cell.isToday || cell.isSel
+                                color: cell.isToday || cell.isSel ? root._textColor : root._mutedText
+                            }
+
+                            Row {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                anchors.bottom: parent.bottom
+                                anchors.bottomMargin: 3
+                                spacing: 2
+                                visible: cell.day > 0 && cell.events.length > 0
+
+                                Repeater {
+                                    model: Math.min(cell.events.length, 3)
+                                    delegate: Rectangle {
+                                        width: 3; height: 3; radius: 1.5
+                                        color: root._eventColor(cell.events[index])
+                                    }
+                                }
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                enabled: cell.day > 0
+                                onClicked: root._setDisplayDay(new Date(root._viewYear, root._viewMonth, cell.day))
+                                onWheel: (wheel) => root._scrollMonthFromDelta(wheel.angleDelta.y, wheel.pixelDelta.y)
+                            }
+                        }
                     }
                 }
             }

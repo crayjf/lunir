@@ -1,7 +1,8 @@
 pragma Singleton
 import QtQuick 2.15
+import Quickshell
 
-QtObject {
+Singleton {
     id: root
 
     property var selectedDay: null

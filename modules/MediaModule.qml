@@ -1,289 +1,304 @@
 import QtQuick 2.15
-import Quickshell.Io 0.1
+import Quickshell.Services.Mpris
+import Quickshell.Widgets
 import "../lib"
 
 Item {
     id: root
+
     property var moduleConfig: null
 
-    // ── State ─────────────────────────────────────────────────────────────────
-    property string playerName: ""
-    property string title:      "NO PLAYER"
-    property string artist:     "—"
-    property string timeText:   ""
-    property string artPath:    ""
-    property real   progress:   0.0
-    property bool   playing:    false
+    readonly property color _textColor: Theme.color(moduleConfig, "textColor", "#F8F8F2FF")
+    readonly property color _accentColor: Theme.color(moduleConfig, "accentColor", "#FF79C6FF")
+    readonly property color _mutedText: Theme.textMuted
+    readonly property color _softText: Theme.textMuted
 
-    property var  _cavaData:    []
-    property string _lastArtUrl: ""
-    readonly property int _BARS: 28
-    readonly property string _CAVA_CFG: "/tmp/lunir-cava.ini"
-    readonly property string _ART_CACHE: "/tmp/lunir-media-art"
-
-    // ── Write cava config ─────────────────────────────────────────────────────
-    Process {
-        id: writeCfgProc
-        command: ["sh", "-c", "printf '%s' \"$1\" > /tmp/lunir-cava.ini", "sh",
-            "[general]\nbars = 28\nframerate = 30\nautosens = 0\nsensitivity = 100\n\n" +
-            "[input]\nmethod = pulse\nsource = auto\n\n" +
-            "[output]\nmethod = raw\nraw_target = /dev/stdout\n" +
-            "data_format = ascii\nbar_delimiter = 32\nframe_delimiter = 10\nbit_format = 8\n"]
-        running: false
+    readonly property var players: Mpris.players.values
+    readonly property var player: {
+        const active = root.players.find(function(p) { return p.isPlaying })
+        return active || (root.players.length > 0 ? root.players[0] : null)
     }
 
-    // ── Cava process (continuous stdout) ──────────────────────────────────────
-    Process {
-        id: cavaProc
-        command: ["cava", "-p", root._CAVA_CFG]
-        running: false
-        stdout: SplitParser {
-            splitMarker: "\n"
-            onRead: function(data) {
-                const vals = data.trim().split(" ").map(Number)
-                if (vals.length > 0 && !isNaN(vals[0])) {
-                    root._cavaData = vals
-                    cavaCanvas.requestPaint()
-                }
-            }
-        }
-        onExited: {
-            root._cavaData = []
-            cavaCanvas.requestPaint()
+    property string playerName: player ? (player.identity || "").toUpperCase() : ""
+    property string title: player ? (player.trackTitle || "NO PLAYER") : "NO PLAYER"
+    property string artist: player ? (player.trackArtist || "Waiting for playback") : "Waiting for playback"
+    property string artPath: player ? (player.trackArtUrl || "") : ""
+    property bool playing: player ? player.isPlaying : false
+    property string timeText: player ? root._formatProgress() : ""
+    property real progress: player && player.lengthSupported && player.length > 0
+        ? Math.min(player.position / player.length, 1.0)
+        : 0.0
+
+    function _fmtTime(seconds) {
+        const total = Math.max(0, Math.floor(seconds || 0))
+        const m = Math.floor(total / 60)
+        return m + ":" + String(total % 60).padStart(2, "0")
+    }
+
+    function _formatProgress() {
+        if (!player || !player.lengthSupported || player.length <= 0) return ""
+        return _fmtTime(player.position) + " / " + _fmtTime(player.length)
+    }
+
+    function _controlIconOffsetX(label) {
+        switch (label) {
+            case "⏸": return 1
+            default: return 0
         }
     }
 
-    // ── playerctl poll ────────────────────────────────────────────────────────
-    Process {
-        id: pollProc
-        command: ["playerctl", "metadata", "--format",
-            "{{playerName}}\t{{xesam:title}}\t{{xesam:artist}}\t{{mpris:length}}\t{{status}}\t{{position}}\t{{mpris:artUrl}}"]
-        running: false
-        stdout: StdioCollector { id: pollStdio }
-        onExited: root._applyMeta(pollStdio.text.trim())
-    }
-
-    // ── Control processes ─────────────────────────────────────────────────────
-    Process { id: prevProc;  command: ["playerctl","previous"];   running: false }
-    Process { id: stopProc;  command: ["playerctl","stop"];       running: false }
-    Process { id: playProc;  command: ["playerctl","play-pause"]; running: false }
-    Process { id: nextProc;  command: ["playerctl","next"];       running: false }
-
-    // ── Art download ──────────────────────────────────────────────────────────
-    Process {
-        id: artProc
-        property string url: ""
-        command: ["curl", "-s", "--max-time", "5", "-o", root._ART_CACHE, artProc.url]
-        running: false
-        onExited: root.artPath = "file://" + root._ART_CACHE
-    }
-
-    // ── Metadata parser ───────────────────────────────────────────────────────
-    function _fmtTime(us) {
-        const s = Math.floor(us / 1000000)
-        const m = Math.floor(s / 60)
-        return m + ":" + String(s % 60).padStart(2,"0")
-    }
-
-    function _applyMeta(meta) {
-        if (!meta || meta.startsWith("\t") || meta.includes("No players found")) {
-            root.title = "NO PLAYER"; root.artist = "—"; root.playerName = ""
-            root.timeText = ""; root.progress = 0; root.playing = false
-            if (cavaProc.running) cavaProc.running = false
-            return
-        }
-        const p = meta.split("\t")
-        root.playerName = p[0] || ""
-        root.title      = p[1] || "—"
-        root.artist     = p[2] || "—"
-        const lenUs     = parseInt(p[3]||"0") || 0
-        const status    = (p[4]||"").toLowerCase()
-        const posUs     = parseInt(p[5]||"0") || 0
-        const artUrl    = p[6] || ""
-
-        root.playing = (status === "playing")
-        if (root.playing) {
-            if (!cavaProc.running) { writeCfgProc.running = true; cavaProc.running = true }
-        } else {
-            if (cavaProc.running) cavaProc.running = false
-        }
-
-        if (lenUs > 0) {
-            root.progress = Math.min(posUs / lenUs, 1.0)
-            root.timeText = _fmtTime(posUs) + " / " + _fmtTime(lenUs)
-        } else {
-            root.progress = 0; root.timeText = ""
-        }
-
-        if (artUrl && artUrl !== root._lastArtUrl) {
-            root._lastArtUrl = artUrl
-            if (artUrl.startsWith("file://")) {
-                root.artPath = artUrl
-            } else if (artUrl) {
-                artProc.url = artUrl
-                artProc.running = true
-            }
-        } else if (!artUrl && root._lastArtUrl) {
-            root._lastArtUrl = ""; root.artPath = ""
+    function _controlIconOffsetY(label) {
+        switch (label) {
+            case "⏮":
+            case "⏸":
+            case "▶":
+            case "⏭":
+                return 1
+            default:
+                return 0
         }
     }
 
     Timer {
-        interval: 1000; repeat: true
-        running: root.visible; triggeredOnStart: true
-        onTriggered: pollProc.running = true
+        running: root.playing && !!root.player
+        interval: 1000
+        repeat: true
+        onTriggered: root.timeText = root._formatProgress()
     }
 
-    onVisibleChanged: {
-        if (!visible && cavaProc.running) cavaProc.running = false
-    }
+    Item {
+        anchors.fill: parent
 
-    // ── UI ────────────────────────────────────────────────────────────────────
-    Column {
-        anchors { fill: parent; margins: 10 }
-        spacing: 8
-
-        // Top row: art + info
         Row {
-            width: parent.width
-            spacing: 12
+            id: contentRow
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.topMargin: 8
+            height: 102
+            spacing: 14
 
-            // Album art
-            Rectangle {
-                width: 72; height: 72
-                radius: 4
-                color: Qt.rgba(1,1,1,0.08)
-                clip: true
-                Image {
-                    anchors.fill: parent
-                    source: root.artPath
-                    fillMode: Image.PreserveAspectCrop
-                    visible: root.artPath !== ""
-                }
-                Text {
-                    anchors.centerIn: parent
-                    visible: root.artPath === ""
-                    text: "♫"; font.pixelSize: 28
-                    color: Qt.rgba(Theme.textColor.r,Theme.textColor.g,Theme.textColor.b,0.3)
-                }
-            }
+            Item {
+                width: 102
+                height: parent.height
 
-            // Info column
-            Column {
-                width: parent.width - 84
-                height: 72
-                spacing: 3
-                anchors.verticalCenter: parent.verticalCenter
-
-                Row {
-                    width: parent.width
-                    Text {
-                        text: root.title; width: parent.width - playerLabel.width
-                        font.pixelSize: 12; color: Theme.textColor
-                        elide: Text.ElideRight
-                    }
-                    Text {
-                        id: playerLabel
-                        text: root.playerName.toUpperCase()
-                        font.pixelSize: 9
-                        color: Qt.rgba(Theme.textColor.r,Theme.textColor.g,Theme.textColor.b,0.5)
-                    }
-                }
-                Row {
-                    width: parent.width
-                    Text {
-                        text: root.artist; width: parent.width - timeLabel.width
-                        font.pixelSize: 10
-                        color: Qt.rgba(Theme.textColor.r,Theme.textColor.g,Theme.textColor.b,0.7)
-                        elide: Text.ElideRight
-                    }
-                    Text {
-                        id: timeLabel
-                        text: root.timeText; font.pixelSize: 9
-                        color: Qt.rgba(Theme.textColor.r,Theme.textColor.g,Theme.textColor.b,0.5)
-                    }
-                }
-                // Progress bar
                 Rectangle {
-                    width: parent.width; height: 4; radius: 2
-                    color: Qt.rgba(1,1,1,0.10)
-                    Rectangle {
-                        width: parent.width * root.progress; height: parent.height; radius: parent.radius
-                        color: Theme.accentColor
-                        Behavior on width { NumberAnimation { duration: 300 } }
-                    }
+                    id: artGlow
+                    width: parent.width
+                    height: parent.height
+                    radius: 30
+                    anchors.centerIn: parent
+                    color: Qt.rgba(root._accentColor.r, root._accentColor.g, root._accentColor.b, 0.16)
                 }
-            }
-        }
 
-        // Controls
-        Row {
-            anchors.horizontalCenter: parent.horizontalCenter
-            spacing: 4
-            Repeater {
-                model: [
-                    {label:"⏮", proc: prevProc},
-                    {label:"⏹", proc: stopProc},
-                    {label: root.playing ? "⏸" : "▶", proc: playProc},
-                    {label:"⏭", proc: nextProc},
-                ]
-                delegate: Rectangle {
-                    width: 34; height: 28; radius: 3
-                    color: ma.containsMouse ? Qt.rgba(1,1,1,0.12) : Qt.rgba(1,1,1,0.06)
+                ClippingRectangle {
+                    id: artFrame
+                    width: 94
+                    height: 94
+                    anchors.centerIn: parent
+                    radius: 26
+                    color: Theme.surfaceRaised
+
+                    Image {
+                        anchors.fill: parent
+                        source: root.artPath
+                        fillMode: Image.PreserveAspectCrop
+                        visible: root.artPath !== ""
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        visible: root.artPath === ""
+                        color: Theme.surfaceRaised
+                    }
+
                     Text {
                         anchors.centerIn: parent
-                        text: modelData.label; font.pixelSize: 14
+                        visible: root.artPath === ""
+                        text: "♫"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 30
+                        color: Qt.rgba(root._textColor.r, root._textColor.g, root._textColor.b, 0.35)
                     }
-                    MouseArea {
-                        id: ma; anchors.fill: parent; hoverEnabled: true
-                        onClicked: modelData.proc.running = true
+                }
+            }
+
+            Item {
+                id: sideContent
+                width: parent.width - 102 - parent.spacing
+                height: parent.height
+
+                Column {
+                    id: textColumn
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.verticalCenterOffset: -14
+                    spacing: 6
+
+                    Text {
+                        width: parent.width
+                        text: root.playerName || "MEDIA"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 9
+                        font.letterSpacing: 2.2
+                        color: root._softText
+                        elide: Text.ElideRight
+                    }
+
+                    Text {
+                        width: parent.width
+                        text: root.title
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 18
+                        font.bold: true
+                        color: root._textColor
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 2
+                        elide: Text.ElideRight
+                    }
+
+                    Text {
+                        width: parent.width
+                        text: root.artist
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 11
+                        color: root._mutedText
+                        elide: Text.ElideRight
+                    }
+                }
+
+                Item {
+                    id: statusRow
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: 34
+
+                    Rectangle {
+                        id: statusPill
+                        width: 60
+                        height: 20
+                        radius: 10
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: root.playing
+                            ? Qt.rgba(root._accentColor.r, root._accentColor.g, root._accentColor.b, 0.20)
+                            : Theme.surfaceHover
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: root.playing ? "PLAYING" : "PAUSED"
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 8
+                            font.letterSpacing: 1.6
+                            color: root.playing ? root._textColor : root._mutedText
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                    }
+
+                    Text {
+                        id: timeTextItem
+                        anchors.left: statusPill.right
+                        anchors.leftMargin: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: root.timeText
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 9
+                        color: root._softText
+                        verticalAlignment: Text.AlignVCenter
+                        height: parent.height
+                    }
+
+                    Item {
+                        anchors.left: timeTextItem.right
+                        anchors.leftMargin: 6
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        height: 34
+
+                        Row {
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 8
+
+                            Repeater {
+                                model: [
+                                    { label: "⏮", enabled: root.player && root.player.canGoPrevious, run: function() { root.player.previous() } },
+                                    { label: root.playing ? "⏸" : "▶", enabled: root.player && root.player.canTogglePlaying, run: function() { root.player.togglePlaying() } },
+                                    { label: "⏭", enabled: root.player && root.player.canGoNext, run: function() { root.player.next() } }
+                                ]
+
+                                delegate: Rectangle {
+                                    width: index === 1 ? 34 : 28
+                                    height: index === 1 ? 34 : 28
+                                    radius: index === 1 ? 17 : 14
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    opacity: modelData.enabled ? 1.0 : 0.30
+                                    color: hover.containsMouse
+                                        ? Qt.rgba(root._accentColor.r, root._accentColor.g, root._accentColor.b, index === 1 ? 0.28 : 0.16)
+                                        : index === 1
+                                            ? Qt.rgba(root._accentColor.r, root._accentColor.g, root._accentColor.b, 0.18)
+                                            : Theme.surfaceRaised
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        anchors.horizontalCenterOffset: root._controlIconOffsetX(modelData.label)
+                                        anchors.verticalCenterOffset: root._controlIconOffsetY(modelData.label)
+                                        text: modelData.label
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: index === 1 ? 15 : 12
+                                        color: root._textColor
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+
+                                    MouseArea {
+                                        id: hover
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        enabled: modelData.enabled
+                                        onClicked: modelData.run()
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
 
-        // Cava canvas
-        Canvas {
-            id: cavaCanvas
-            width: parent.width; height: 64
+        Item {
+            id: progressTrack
+            x: 0
+            width: parent.width
+            y: parent.height - 18
+            height: 8
 
-            onPaint: {
-                const ctx  = getContext("2d")
-                ctx.clearRect(0, 0, width, height)
-                const data  = root._cavaData
-                const count = root._BARS
-                if (!data || data.length === 0) {
-                    ctx.fillStyle = Qt.rgba(Theme.textColor.r,Theme.textColor.g,Theme.textColor.b,0.15)
-                    ctx.font = "20px sans-serif"
-                    ctx.textAlign = "center"
-                    ctx.fillText("♫", width/2, height/2 + 7)
-                    return
-                }
-                const bW  = width / count
-                const gap = Math.max(1, bW * 0.18)
-                const bWidth = bW - gap
-                const maxH = height * 0.86
-                const ac = Theme.accentColor
-                for (let i = 0; i < count; i++) {
-                    const val = (data[i] || 0) / 255
-                    const bh  = Math.round(val * maxH)
-                    if (bh < 2 || bWidth < 1) continue
-                    const x = i * bW + gap / 2
-                    const y = height - bh
-                    const alpha = 0.35 + val * 0.55
-                    ctx.fillStyle = Qt.rgba(ac.r, ac.g, ac.b, alpha)
-                    const r = Math.min(3, bWidth/2, bh/2)
-                    ctx.beginPath()
-                    ctx.moveTo(x+r, y)
-                    ctx.lineTo(x+bWidth-r, y)
-                    ctx.arcTo(x+bWidth, y, x+bWidth, y+r, r)
-                    ctx.lineTo(x+bWidth, height)
-                    ctx.lineTo(x, height)
-                    ctx.lineTo(x, y+r)
-                    ctx.arcTo(x, y, x+r, y, r)
-                    ctx.closePath()
-                    ctx.fill()
-                }
+            Rectangle {
+                anchors.fill: parent
+                radius: 4
+                color: Theme.track
+            }
+
+            Rectangle {
+                width: Math.max(10, parent.width * root.progress)
+                height: parent.height
+                topLeftRadius: 4
+                bottomLeftRadius: 4
+                topRightRadius: 2
+                bottomRightRadius: 2
+                color: root._accentColor
+            }
+
+            Rectangle {
+                width: 3
+                height: 14
+                radius: 1.5
+                x: Math.max(0, Math.min(parent.width - width, (parent.width * root.progress) - (width / 2) + 4))
+                anchors.verticalCenter: parent.verticalCenter
+                color: Theme.text
             }
         }
     }

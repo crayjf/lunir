@@ -1,32 +1,64 @@
 pragma Singleton
 import QtQuick 2.15
-import Quickshell.Io 0.1
+import Quickshell
+import Quickshell.Io
 
-QtObject {
+Singleton {
     id: root
 
-    // ── Exposed state ──────────────────────────────────────────────────────
     property var theme: ({})
-    property var modules: []
-    property var animation: ({})
     property var wallpaper: ({})
+    property var weather: ({})
+    property var calendar: ({})
+    property var launcher: ({})
+    property var task: ([])
+    property var note: ([])
+    property var controlCenter: ({})
 
-    // ── Defaults ───────────────────────────────────────────────────────────
     readonly property var _defaultTheme: ({
-        overlayBackgroundEnabled: true,
-        overlayBackground: "rgba(0,0,0,0)",
-        widgetBackground: "rgba(30,30,46,0.85)",
-        widgetBorderColor: "rgba(137,180,250,0.5)",
-        widgetBorderWidth: 1,
-        widgetBorderRadius: 12,
-        textColor: "#cdd6f4",
-        accentColor: "#89b4fa",
+        background: "#191A21FF",
+        surface: "#282A36F0",
+        surfaceRaised: "#44475AE0",
+        surfaceHover: "#FF79C629",
+        border: "#F8F8F21F",
+        borderStrong: "#FF79C661",
+        text: "#F8F8F2FF",
+        textMuted: "#F8F8F2B3",
+        accent: "#FF79C6FF",
+        track: "#F8F8F224",
+        shadow: "#00000075",
+        success: "#50FA7BFF",
+        warning: "#FFB86CFF",
+        error: "#FF5555FF",
+        info: "#8BE9FDFF",
+        radius: 20,
+        radiusSmall: 12,
+        radiusLarge: 28,
+        borderWidth: 1,
+        fontFamily: "Inter",
     })
 
-    readonly property var _defaultAnimation: ({
-        enabled: true,
-        duration: 200,
-        type: "crossfade",
+    readonly property var _themeComments: ({
+        background: "base background color used behind major surfaces",
+        surface: "main panel/card fill color",
+        surfaceRaised: "slightly brighter fill for nested cards and icon buttons",
+        surfaceHover: "hover/active fill for small controls",
+        border: "normal outline color for panels and popups, or #rainbow for a hue border",
+        borderStrong: "stronger outline color for emphasis states",
+        text: "primary readable text color",
+        textMuted: "secondary labels and less prominent text",
+        accent: "primary highlight color for progress, selected, and active states",
+        track: "inactive progress bars, sliders, and off states",
+        shadow: "dark overlay/shadow color",
+        success: "positive status color",
+        warning: "warning status color",
+        error: "error/destructive status color",
+        info: "informational status color",
+        radius: "standard corner radius for panels",
+        radiusSmall: "small control/card corner radius",
+        radiusLarge: "large surface corner radius",
+        borderWidth: "default border width in pixels",
+        fontFamily: "default UI font family",
     })
 
     readonly property var _defaultWallpaper: ({
@@ -35,159 +67,300 @@ QtObject {
         fit: "cover",
     })
 
-    readonly property var _defaultModules: ([
-        {
-            id: "default-empty",
-            type: "empty",
-            enabled: true,
-            mode: "canvas",
-            x: 100, y: 100, width: 300, height: 200,
-        }
-    ])
+    readonly property var _defaultWeather: ({
+        apiKey: "",
+        location: "Berlin,DE",
+        units: "metric",
+        refreshInterval: 30,
+    })
 
-    // ── Config path (shell-safe, no StandardPaths dependency) ─────────────
-    readonly property string _configFile: "$HOME/.config/lunir-qs/config.json"
-    readonly property string _configDir:  "$HOME/.config/lunir-qs"
+    readonly property var _defaultCalendar: ({
+        calendars: [],
+        showColors: true,
+        refreshInterval: 30,
+    })
 
-    // ── File reader ────────────────────────────────────────────────────────
-    property Process _readProc: Process {
-        id: readProc
-        running: false
-        command: ["sh", "-c", "cat \"$HOME/.config/lunir-qs/config.json\""]
-        stdout: StdioCollector { id: readStdio }
+    readonly property var _defaultLauncher: ({
+        terminalCommand: "ghostty",
+        iconTheme: "",
+        iconThemePaths: [],
+    })
+
+    readonly property var _defaultTask: ([])
+
+    readonly property var _defaultControlCenter: ({
+        marginX: 12,
+        marginY: 12,
+        animationStyle: "Move",
+        animationTime: 180,
+    })
+
+    readonly property string _xdgConfigHome: Quickshell.env("XDG_CONFIG_HOME")
+        || (Quickshell.env("HOME") + "/.config")
+    readonly property string _configDir: _xdgConfigHome + "/lunir-qs"
+    readonly property string _configFile: _configDir + "/config.json"
+
+    property bool loaded: false
+
+    property FileView _configView: FileView {
+        id: configView
+        path: root._configFile
+        blockLoading: true
+        watchChanges: true
+        onLoaded: { root._applyFromFile(); root.loaded = true }
+        onFileChanged: reload()
+        onLoadFailed: { root._applyDefaults(); root.loaded = true }
+        onSaveFailed: (error) => console.warn("Failed to save config.json:", error)
+    }
+
+    property Timer _saveTimer: Timer {
+        interval: 500
+        repeat: false
+        onTriggered: root._save()
+    }
+
+    property var _pendingData: null
+    property Process _mkdirProc: Process {
+        command: ["mkdir", "-p", root._configDir]
         onExited: (code) => {
-            if (code !== 0) {
-                root._applyDefaults()
-                root._doSave()
-                return
+            if (code === 0 && root._pendingData) {
+                configView.setText(root._stringifyConfig(root._pendingData))
+                root._pendingData = null
             }
-            root._parseConfig(readStdio.text)
         }
     }
 
-    function _parseConfig(raw) {
+    function _copy(value) {
+        return JSON.parse(JSON.stringify(value))
+    }
+
+    function _merge(defaults, value) {
+        const cleaned = {}
+        const input = value || {}
+        for (const key of Object.keys(input)) {
+            if (input[key] !== undefined)
+                cleaned[key] = input[key]
+        }
+        return Object.assign(root._copy(defaults), cleaned)
+    }
+
+    function _normalizeTaskList(value) {
+        let source = value
+        if (source && typeof source === "object" && !Array.isArray(source) && Array.isArray(source.tasks))
+            source = source.tasks
+        if (!Array.isArray(source))
+            return []
+        return source.filter(function(entry) {
+            return typeof entry === "string"
+        })
+    }
+
+    function _moduleProps(parsed, type) {
+        if (!parsed || !Array.isArray(parsed.modules)) return {}
+        const mod = parsed.modules.find(function(m) {
+            return m && m.type === type && m.props && typeof m.props === "object"
+        })
+        return mod ? mod.props : {}
+    }
+
+    function _applyDefaults() {
+        theme = _copy(_defaultTheme)
+        wallpaper = _copy(_defaultWallpaper)
+        weather = _copy(_defaultWeather)
+        calendar = _copy(_defaultCalendar)
+        launcher = _copy(_defaultLauncher)
+        task = _copy(_defaultTask)
+        note = _copy(_defaultTask)
+        controlCenter = _copy(_defaultControlCenter)
+    }
+
+    function _apply(parsed) {
+        parsed = parsed || {}
+
+        const legacyShell = parsed.shell && typeof parsed.shell === "object" ? parsed.shell : {}
+        const legacyLauncherProps = _moduleProps(parsed, "launcher")
+        const legacyTaskProps = _moduleProps(parsed, "task")
+        const legacyNoteProps = _moduleProps(parsed, "note")
+
+        theme = _merge(_defaultTheme, parsed.theme)
+        wallpaper = _merge(_defaultWallpaper, parsed.wallpaper)
+        weather = _merge(_defaultWeather, Object.assign({}, _moduleProps(parsed, "weather"), parsed.weather || {}))
+        calendar = _merge(_defaultCalendar, Object.assign({}, _moduleProps(parsed, "calendar"), parsed.calendar || {}))
+        launcher = _merge(_defaultLauncher, Object.assign({
+            iconTheme: legacyShell.launcherIconTheme,
+            iconThemePaths: legacyShell.launcherIconThemePaths,
+        }, legacyLauncherProps, parsed.launcher || {}))
+        task = _normalizeTaskList(parsed.task)
+        if (task.length === 0)
+            task = _normalizeTaskList(parsed.note)
+        if (task.length === 0)
+            task = _normalizeTaskList(legacyTaskProps)
+        if (task.length === 0)
+            task = _normalizeTaskList(legacyNoteProps)
+        note = task
+        controlCenter = _merge(_defaultControlCenter, parsed.controlCenter)
+    }
+
+    function _applyFromFile() {
+        const text = configView.text()
+        if (!text || !text.trim()) {
+            _applyDefaults()
+            return
+        }
+
         try {
-            if (!raw || raw.trim() === "") {
-                _applyDefaults()
-                _doSave()
-                return
-            }
-            const parsed = JSON.parse(raw)
-            if (!parsed.version || parsed.version < 2 || parsed.widgets) {
-                const migrated = _migrateV1(parsed)
-                _apply(migrated)
-                _doSave()
-                return
-            }
-            _apply(parsed)
+            _apply(JSON.parse(_stripJsonComments(text)))
         } catch (e) {
-            console.error("lunir: config.json invalid, using defaults:", e)
+            console.warn("Failed to parse config.json:", e)
             _applyDefaults()
         }
     }
 
-    function _migrateV1(parsed) {
-        const oldWidgets = parsed.widgets || []
-        const newModules = oldWidgets.map(w => Object.assign({ mode: "canvas" }, w))
-        return {
-            version: 2,
-            theme: Object.assign({}, _defaultTheme, parsed.theme || {}),
-            modules: newModules.length > 0 ? newModules : _defaultModules,
-            animation: Object.assign({}, _defaultAnimation, parsed.animation || {}),
-            wallpaper: Object.assign({}, _defaultWallpaper, parsed.wallpaper || {}),
+    function _stripJsonComments(text) {
+        let out = ""
+        let inString = false
+        let escaped = false
+        for (let i = 0; i < text.length; i++) {
+            const ch = text[i]
+            const next = i + 1 < text.length ? text[i + 1] : ""
+
+            if (!inString && ch === "/" && next === "/") {
+                while (i < text.length && text[i] !== "\n")
+                    i++
+                if (i < text.length)
+                    out += "\n"
+                continue
+            }
+
+            out += ch
+
+            if (escaped) {
+                escaped = false
+            } else if (ch === "\\") {
+                escaped = true
+            } else if (ch === "\"") {
+                inString = !inString
+            }
         }
+        return out
     }
 
-    function _applyDefaults() {
-        theme = Object.assign({}, _defaultTheme)
-        modules = JSON.parse(JSON.stringify(_defaultModules))
-        animation = Object.assign({}, _defaultAnimation)
-        wallpaper = Object.assign({}, _defaultWallpaper)
+    function _compact(value, defaults) {
+        if (!value || typeof value !== "object" || Array.isArray(value))
+            return JSON.stringify(value) === JSON.stringify(defaults) ? undefined : value
+
+        const out = {}
+        for (const key of Object.keys(value)) {
+            const compactValue = _compact(value[key], defaults ? defaults[key] : undefined)
+            if (compactValue !== undefined)
+                out[key] = compactValue
+        }
+        return Object.keys(out).length > 0 ? out : undefined
     }
 
-    function _apply(parsed) {
-        theme = Object.assign({}, _defaultTheme, parsed.theme || {})
-        modules = Array.isArray(parsed.modules) && parsed.modules.length > 0
-            ? parsed.modules
-            : JSON.parse(JSON.stringify(_defaultModules))
-        animation = Object.assign({}, _defaultAnimation, parsed.animation || {})
-        wallpaper = Object.assign({}, _defaultWallpaper, parsed.wallpaper || {})
-    }
-
-    // ── Save debounce ──────────────────────────────────────────────────────
-    property Timer _saveTimer: Timer {
-        interval: 500
-        repeat: false
-        onTriggered: root._doSave()
+    function _assign(data, key, value, defaults) {
+        const compactValue = _compact(value, defaults)
+        if (compactValue !== undefined)
+            data[key] = compactValue
     }
 
     function _scheduleSave() {
         _saveTimer.restart()
     }
 
-    property Process _saveProc: Process {
-        id: saveProc
-        running: false
-        property string _pendingContent: ""
-        command: ["sh", "-c",
-            "mkdir -p \"$HOME/.config/lunir-qs\" && printf '%s' \"$1\" > \"$HOME/.config/lunir-qs/config.json\"",
-            "sh", saveProc._pendingContent]
+    function saveImmediate() {
+        _saveTimer.stop()
+        const data = { version: 3 }
+        data.theme = theme
+        _assign(data, "wallpaper", wallpaper, _defaultWallpaper)
+        _assign(data, "weather", weather, _defaultWeather)
+        _assign(data, "calendar", calendar, _defaultCalendar)
+        _assign(data, "launcher", launcher, _defaultLauncher)
+        _assign(data, "task", task, _defaultTask)
+        data.controlCenter = controlCenter
+        configView.setText(_stringifyConfig(data))
     }
 
-    function _doSave() {
-        const data = {
-            version: 2,
-            theme: theme,
-            modules: modules,
-            animation: animation,
-            wallpaper: wallpaper,
+    function _save() {
+        const data = { version: 3 }
+        data.theme = theme
+        _assign(data, "wallpaper", wallpaper, _defaultWallpaper)
+        _assign(data, "weather", weather, _defaultWeather)
+        _assign(data, "calendar", calendar, _defaultCalendar)
+        _assign(data, "launcher", launcher, _defaultLauncher)
+        _assign(data, "task", task, _defaultTask)
+        data.controlCenter = controlCenter
+
+        _pendingData = data
+        _mkdirProc.running = true
+    }
+
+    function _indent(text, spaces) {
+        const pad = " ".repeat(spaces)
+        return text.split("\n").map(function(line) {
+            return line.length > 0 ? pad + line : line
+        }).join("\n")
+    }
+
+    function _themeLine(key, isLast) {
+        const value = JSON.stringify(theme[key])
+        const comma = isLast ? "" : ","
+        return "    " + JSON.stringify(key) + ": " + value + comma + " // " + _themeComments[key]
+    }
+
+    function _appendSection(lines, key, value, isLast) {
+        const indented = _indent(JSON.stringify(value, null, 2), 2)
+        lines.push("  " + JSON.stringify(key) + ": " + indented.substring(2) + (isLast ? "" : ","))
+    }
+
+    function _stringifyConfig(data) {
+        const lines = [
+            "{",
+            "  \"version\": " + data.version + ",",
+            "  \"theme\": {",
+        ]
+
+        const themeKeys = Object.keys(_defaultTheme)
+        for (let i = 0; i < themeKeys.length; i++)
+            lines.push(_themeLine(themeKeys[i], i === themeKeys.length - 1))
+        lines.push("  }")
+
+        const sections = ["wallpaper", "weather", "calendar", "launcher", "task", "controlCenter"].filter(function(key) {
+            return data[key] !== undefined
+        })
+        if (sections.length > 0)
+            lines[lines.length - 1] += ","
+        for (let i = 0; i < sections.length; i++) {
+            _appendSection(lines, sections[i], data[sections[i]], i === sections.length - 1)
         }
-        _saveProc._pendingContent = JSON.stringify(data, null, 2)
-        _saveProc.running = true
-    }
 
-    // ── Public mutation API ────────────────────────────────────────────────
-
-    function updateModule(id, updates) {
-        modules = modules.map(m => m.id === id ? Object.assign({}, m, updates) : m)
-        _scheduleSave()
-    }
-
-    function addModule(mod) {
-        modules = [...modules, mod]
-        _scheduleSave()
-    }
-
-    function removeModule(id) {
-        modules = modules.filter(m => m.id !== id)
-        _scheduleSave()
-    }
-
-    function enableModule(id) {
-        updateModule(id, { enabled: true })
-    }
-
-    function disableModule(id) {
-        updateModule(id, { enabled: false })
-    }
-
-    function updateTheme(updates) {
-        theme = Object.assign({}, theme, updates)
-        _scheduleSave()
+        lines.push("}")
+        return lines.join("\n") + "\n"
     }
 
     function updateWallpaper(updates) {
-        wallpaper = Object.assign({}, wallpaper, updates)
+        wallpaper = Object.assign({}, wallpaper, updates || {})
         _scheduleSave()
     }
 
-    function getModuleById(id) {
-        return modules.find(m => m.id === id) || null
+    function updateTask(updates) {
+        task = _normalizeTaskList(updates)
+        note = task
+        _scheduleSave()
     }
 
-    // ── Boot ───────────────────────────────────────────────────────────────
+    function updateNote(updates) {
+        updateTask(updates)
+    }
+
+    function namespaceFor(surface) {
+        return "lunir-qs-" + surface
+    }
+
     Component.onCompleted: {
         _applyDefaults()
-        readProc.running = true
+        configView.waitForJob()
+        if (configView.loaded)
+            _applyFromFile()
     }
 }

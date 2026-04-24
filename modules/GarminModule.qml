@@ -1,10 +1,13 @@
 import QtQuick 2.15
-import Quickshell.Io 0.1
+import Quickshell
+import Quickshell.Io
 import "../lib"
 
 Item {
     id: root
     property var moduleConfig: null
+    readonly property color _textColor: Theme.color(moduleConfig, "textColor", "#F8F8F2FF")
+    readonly property color _accentColor: Theme.color(moduleConfig, "accentColor", "#FF79C6FF")
 
     readonly property var _cfg:      moduleConfig ? (moduleConfig.props || {}) : {}
     readonly property string _email:    _cfg.email    || ""
@@ -18,8 +21,8 @@ Item {
     property bool   _fetching: false
     property string _status:   "loading…"
 
-    readonly property string _scriptPath:  "~/Software/lunir-qs/scripts/garmin_fetch.py"
-    readonly property string _tokenStore:  "~/.local/share/lunir/garmin-tokens"
+    readonly property string _scriptPath: Quickshell.shellPath("scripts/garmin_fetch.py")
+    readonly property string _tokenStore: Quickshell.dataPath("garmin-tokens")
 
     // ── Fetch ─────────────────────────────────────────────────────────────────
     Process {
@@ -29,7 +32,7 @@ Item {
         stdout: StdioCollector { id: fetchStdio }
         onExited: {
             root._fetching = false
-            refreshBtn.enabled = true
+            refreshBtn.buttonEnabled = true
             try {
                 const data = JSON.parse(fetchStdio.text.trim())
                 if (data.error) {
@@ -63,7 +66,7 @@ Item {
     function _fetch() {
         if (_fetching || !_email || !_password) return
         _fetching = true
-        refreshBtn.enabled = false
+        refreshBtn.buttonEnabled = false
         _status = "fetching…"
         fetchProc.running = true
     }
@@ -78,15 +81,17 @@ Item {
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             text: "STEPS TODAY"
+            font.family: Theme.fontFamily
             font.pixelSize: 9; font.letterSpacing: 2
-            color: Theme.accentColor
+            color: root._accentColor
         }
 
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             text: root._steps > 0 ? root._steps.toLocaleString() : "—"
+            font.family: Theme.fontFamily
             font.pixelSize: 36
-            color: Theme.textColor
+            color: root._textColor
         }
 
         Text {
@@ -94,8 +99,9 @@ Item {
             text: root._status !== ""
                 ? root._status
                 : "of " + root._goal.toLocaleString() + " goal  ·  " + Math.round(root._steps / Math.max(1, root._goal) * 100) + "%"
+            font.family: Theme.fontFamily
             font.pixelSize: 10
-            color: Qt.rgba(Theme.textColor.r,Theme.textColor.g,Theme.textColor.b,0.6)
+            color: Qt.rgba(root._textColor.r, root._textColor.g, root._textColor.b, 0.6)
         }
 
         // Progress bar
@@ -105,7 +111,7 @@ Item {
             Rectangle {
                 width: parent.width * Math.min(1, root._steps / Math.max(1, root._goal))
                 height: parent.height; radius: parent.radius
-                color: Theme.accentColor
+                color: root._accentColor
                 Behavior on width { NumberAnimation { duration: 400 } }
             }
         }
@@ -116,26 +122,28 @@ Item {
             spacing: 24
             Text {
                 text: root._distance > 0 ? root._distance + " km" : "—"
-                font.pixelSize: 10; color: Theme.textColor
+                font.family: Theme.fontFamily
+                font.pixelSize: 10; color: root._textColor
             }
             Text {
                 text: root._kcal > 0 ? root._kcal + " kcal" : "—"
-                font.pixelSize: 10; color: Theme.textColor
+                font.family: Theme.fontFamily
+                font.pixelSize: 10; color: root._textColor
             }
         }
 
         // Refresh button
         Rectangle {
             id: refreshBtn
-            property bool enabled: true
+            property bool buttonEnabled: true
             anchors.horizontalCenter: parent.horizontalCenter
             width: 80; height: 24; radius: 3
             color: refreshMA.containsMouse ? Qt.rgba(1,1,1,0.12) : Qt.rgba(1,1,1,0.06)
-            opacity: enabled ? 1.0 : 0.4
-            Text { anchors.centerIn: parent; text: "REFRESH"; font.pixelSize: 9; font.letterSpacing: 1; color: Theme.textColor }
+            opacity: buttonEnabled ? 1.0 : 0.4
+            Text { anchors.centerIn: parent; text: "REFRESH"; font.family: Theme.fontFamily; font.pixelSize: 9; font.letterSpacing: 1; color: root._textColor }
             MouseArea {
                 id: refreshMA; anchors.fill: parent; hoverEnabled: true
-                onClicked: { if (refreshBtn.enabled) root._fetch() }
+                onClicked: { if (refreshBtn.buttonEnabled) root._fetch() }
             }
         }
     }
