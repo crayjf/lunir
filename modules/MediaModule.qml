@@ -74,7 +74,7 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            anchors.topMargin: 8
+            anchors.topMargin: 5
             height: 102
             spacing: 14
 
@@ -97,7 +97,7 @@ Item {
                     height: 94
                     anchors.centerIn: parent
                     radius: 26
-                    color: Theme.surfaceRaised
+                    color: Theme.accent
 
                     Image {
                         anchors.fill: parent
@@ -109,7 +109,7 @@ Item {
                     Rectangle {
                         anchors.fill: parent
                         visible: root.artPath === ""
-                        color: Theme.surfaceRaised
+                        color: Theme.accent
                     }
 
                     Text {
@@ -182,9 +182,7 @@ Item {
                         radius: 10
                         anchors.left: parent.left
                         anchors.verticalCenter: parent.verticalCenter
-                        color: root.playing
-                            ? Qt.rgba(root._accentColor.r, root._accentColor.g, root._accentColor.b, 0.20)
-                            : Theme.surfaceHover
+                        color: Qt.rgba(root._accentColor.r, root._accentColor.g, root._accentColor.b, 0.18)
 
                         Text {
                             anchors.centerIn: parent
@@ -237,10 +235,8 @@ Item {
                                     anchors.verticalCenter: parent.verticalCenter
                                     opacity: modelData.enabled ? 1.0 : 0.30
                                     color: hover.containsMouse
-                                        ? Qt.rgba(root._accentColor.r, root._accentColor.g, root._accentColor.b, index === 1 ? 0.28 : 0.16)
-                                        : index === 1
-                                            ? Qt.rgba(root._accentColor.r, root._accentColor.g, root._accentColor.b, 0.18)
-                                            : Theme.surfaceRaised
+                                        ? Qt.rgba(root._accentColor.r, root._accentColor.g, root._accentColor.b, index === 1 ? 0.55 : 0.35)
+                                        : Qt.rgba(root._accentColor.r, root._accentColor.g, root._accentColor.b, index === 1 ? 0.18 : 0.12)
 
                                     Text {
                                         anchors.centerIn: parent

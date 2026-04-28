@@ -20,8 +20,12 @@ Singleton {
     }
 
     function _moduleValue(moduleConfig, key) {
-        if (moduleConfig && moduleConfig[key] !== undefined) return moduleConfig[key]
         const props = _moduleProps(moduleConfig)
+        if (key === "textColor" || key === "accentColor" || key === "barColor") {
+            if (moduleConfig && moduleConfig.color !== undefined) return moduleConfig.color
+            if (props && props.color !== undefined) return props.color
+        }
+        if (moduleConfig && moduleConfig[key] !== undefined) return moduleConfig[key]
         if (props && props[key] !== undefined) return props[key]
         const scopedTheme = _moduleTheme(moduleConfig)
         if (scopedTheme && scopedTheme[key] !== undefined) return scopedTheme[key]
@@ -54,7 +58,12 @@ Singleton {
     }
 
     function _isRainbowValue(value) {
-        return typeof value === "string" && value.toLowerCase() === "#rainbow"
+        return typeof value === "string" && /^#rainbow(?:[0-9a-fA-F]{2})?$/i.test(value)
+    }
+
+    function _rainbowAlpha(value) {
+        if (!_isRainbowValue(value)) return 1.0
+        return value.length === 10 ? parseInt(value.slice(8, 10), 16) / 255 : 1.0
     }
 
     function _colorComponent(value) {
@@ -111,8 +120,58 @@ Singleton {
         return _c(_moduleValue(moduleConfig, key), fallback)
     }
 
+    function value(moduleConfig, key, fallback) {
+        const raw = _moduleValue(moduleConfig, key)
+        return raw !== undefined ? raw : fallback
+    }
+
     function isRainbowBorder(moduleConfig) {
         return _isRainbowValue(_moduleValue(moduleConfig, "widgetBorderColor"))
+    }
+
+    function isRainbow(moduleConfig, key) {
+        return _isRainbowValue(_moduleValue(moduleConfig, key))
+    }
+
+    function rainbowAlpha(moduleConfig, key) {
+        return _rainbowAlpha(_moduleValue(moduleConfig, key))
+    }
+
+    function rainbowColorFromHue(hue, alpha) {
+        const h = ((hue % 360) + 360) % 360
+        const hp = h / 60
+        const hi = Math.floor(hp)
+        const c = 0.78
+        const m = 0.22
+        const xv = c * (1 - Math.abs((hp % 2) - 1))
+        let r = m
+        let g = m
+        let b = m
+        if (hi === 0) { r += c; g += xv }
+        else if (hi === 1) { r += xv; g += c }
+        else if (hi === 2) { g += c; b += xv }
+        else if (hi === 3) { g += xv; b += c }
+        else if (hi === 4) { r += xv; b += c }
+        else { r += c; b += xv }
+        return Qt.rgba(r, g, b, alpha === undefined ? 1.0 : alpha)
+    }
+
+    function positionalRainbowColor(moduleConfig, alpha) {
+        const x = Number(moduleConfig && moduleConfig.x !== undefined ? moduleConfig.x : 0)
+        const width = Number(moduleConfig && moduleConfig.width !== undefined ? moduleConfig.width : 0)
+        const centerX = x + width / 2
+        const referenceWidth = 2560
+        const frac = ((centerX % referenceWidth) + referenceWidth) % referenceWidth / referenceWidth
+        return rainbowColorFromHue(120 + frac * 300, alpha)
+    }
+
+    function positionalRainbowSample(moduleConfig, localFrac, alpha) {
+        const x = Number(moduleConfig && moduleConfig.x !== undefined ? moduleConfig.x : 0)
+        const width = Number(moduleConfig && moduleConfig.width !== undefined ? moduleConfig.width : 0)
+        const referenceWidth = 2560
+        const absoluteX = x + width * Math.max(0, Math.min(1, localFrac))
+        const frac = ((absoluteX % referenceWidth) + referenceWidth) % referenceWidth / referenceWidth
+        return rainbowColorFromHue(120 + frac * 300, alpha)
     }
 
     readonly property bool borderIsRainbow: _isRainbowValue(_themeValue("border", "widgetBorderColor", "#F8F8F21F"))
@@ -132,8 +191,6 @@ Singleton {
 
     readonly property color background:    _c(_themeValue("background", "overlayBackground", "#191A21FF"), "#191A21FF")
     readonly property color surface:       _c(_themeValue("surface", "widgetBackground", "#282A36F0"), "#282A36F0")
-    readonly property color surfaceRaised: _c(_themeValue("surfaceRaised", "", "#44475AE0"), "#44475AE0")
-    readonly property color surfaceHover:  _c(_themeValue("surfaceHover", "", "#FF79C629"), "#FF79C629")
     readonly property color border:        _c(_themeValue("border", "widgetBorderColor", "#F8F8F21F"), "#F8F8F21F")
     readonly property color text:          _c(_themeValue("text", "textColor", "#F8F8F2FF"), "#F8F8F2FF")
     readonly property color textMuted:     _c(_themeValue("textMuted", "", "#F8F8F2B3"), "#F8F8F2B3")

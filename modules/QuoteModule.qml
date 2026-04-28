@@ -152,10 +152,13 @@ Item {
 
     Component.onCompleted: { readCacheProc.running = true }
 
+    readonly property real preferredHeight: quoteColumn.implicitHeight + 20
+
     // ── UI ────────────────────────────────────────────────────────────────────
     Column {
-        anchors { left: parent.left; right: parent.right; margins: 12 }
-        anchors.verticalCenter: parent.verticalCenter
+        id: quoteColumn
+        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 12 }
+        anchors.topMargin: 10
         spacing: 10
 
         Text {

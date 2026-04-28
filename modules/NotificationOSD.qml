@@ -7,6 +7,7 @@ PanelWindow {
     id: win
 
     aboveWindows: true
+    screen: Quickshell.screens[0]
     focusable: false
     WlrLayershell.layer: WlrLayershell.Overlay
     WlrLayershell.namespace: Config.namespaceFor("notification")
@@ -20,7 +21,7 @@ PanelWindow {
     readonly property int _gap: 10
     readonly property int _maxItems: 5
     readonly property color _textColor: Theme.text
-    readonly property color _panelColor: Theme.surface
+    readonly property color _panelColor: Theme.background
     readonly property color _mutedText: Theme.textMuted
     readonly property color _softText: Theme.textMuted
 
@@ -140,7 +141,7 @@ PanelWindow {
                             height: 40
                             radius: Theme.radiusSmall
                             anchors.top: parent.top
-                            color: Theme.surfaceRaised
+                            color: Theme.accent
 
                             Text {
                                 anchors.centerIn: parent
@@ -176,8 +177,6 @@ PanelWindow {
                                 font.bold: true
                                 color: win._textColor
                                 wrapMode: Text.WordWrap
-                                maximumLineCount: 2
-                                elide: Text.ElideRight
                                 visible: text.length > 0
                             }
 
@@ -189,8 +188,6 @@ PanelWindow {
                                 lineHeight: 1.12
                                 color: win._softText
                                 wrapMode: Text.WordWrap
-                                maximumLineCount: 3
-                                elide: Text.ElideRight
                                 visible: text.length > 0
                             }
                         }

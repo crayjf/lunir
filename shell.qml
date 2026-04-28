@@ -6,7 +6,7 @@ import Quickshell.Wayland
 import "./lib"
 import "./modules"
 
-// Entry point — run with: qs -p ~/Software/lunir-qs
+// Entry point — run with: qs -p ~/Software/lunir
 //
 // IPC via:  qs ipc call lunir <function> [arg]
 //
@@ -24,11 +24,11 @@ ShellRoot {
     readonly property var _defaultAudioSink: Pipewire.defaultAudioSink
 
     PwObjectTracker {
-        objects: [ _defaultAudioSink ]
+        objects: [_defaultAudioSink]
     }
 
     // ── Standalone windows ────────────────────────────────────────────────────
-    ControlCenter     {}
+    ControlCenter {}
     Variants {
         model: Quickshell.screens
         WallpaperBackground {
@@ -36,38 +36,60 @@ ShellRoot {
             screen: modelData
         }
     }
-    VolumeOSD          {}
-    NotificationOSD    {}
+    Variants {
+        model: Quickshell.screens
+        DesktopWidgets {
+            required property var modelData
+            screen: modelData
+        }
+    }
+    VolumeOSD {}
+    NotificationOSD {}
 
     // ── Volume helpers ────────────────────────────────────────────────────────
     function _changeVolume(delta: real) {
-        if (!_defaultAudioSink || !_defaultAudioSink.audio) return
-        _defaultAudioSink.audio.volume = Math.max(0, Math.min(1, _defaultAudioSink.audio.volume + delta))
-        ModuleControllers.show("volume-osd")
+        if (!_defaultAudioSink || !_defaultAudioSink.audio)
+            return;
+        _defaultAudioSink.audio.volume = Math.max(0, Math.min(1, _defaultAudioSink.audio.volume + delta));
+        ModuleControllers.show("volume-osd");
     }
 
     function _toggleMute() {
-        if (!_defaultAudioSink || !_defaultAudioSink.audio) return
-        _defaultAudioSink.audio.muted = !_defaultAudioSink.audio.muted
-        ModuleControllers.show("volume-osd")
+        if (!_defaultAudioSink || !_defaultAudioSink.audio)
+            return;
+        _defaultAudioSink.audio.muted = !_defaultAudioSink.audio.muted;
+        ModuleControllers.show("volume-osd");
     }
 
     // ── Wallpaper-random helper ───────────────────────────────────────── ──────
     Process {
         id: _wpRandProc
         property string folder: ""
-        command: ["bash", "-c",
-            "f=${1/#~/$HOME}; find \"$f\" -maxdepth 2 -type f" +
-            " \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp'" +
-            " -o -iname '*.avif' -o -iname '*.tiff' \\)" +
-            " | shuf -n 1",
-            "--", _wpRandProc.folder]
+        command: ["bash", "-c", "f=${1/#~/$HOME}; find \"$f\" -maxdepth 2 -type f" + " \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp'" + " -o -iname '*.avif' -o -iname '*.tiff' \\)" + " | shuf -n 1", "--", _wpRandProc.folder]
         running: false
-        stdout: StdioCollector { id: _wpRandStdio }
-        onExited: {
-            const p = _wpRandStdio.text.trim()
-            if (p) Config.updateWallpaper({ current: p })
+        stdout: StdioCollector {
+            id: _wpRandStdio
         }
+        onExited: {
+            const p = _wpRandStdio.text.trim();
+            if (p)
+                Config.updateWallpaper({
+                    current: p
+                });
+        }
+    }
+
+    // ── Hot-reload watcher ────────────────────────────────────────────────────
+    Process {
+        command: ["inotifywait", "-r", "-q", "-e", "modify,create,delete,move", "--exclude", "(\\.git|\\.swp|\\.swx|~)$", "/home/crayjf/Software/lunir"]
+        running: true
+        onExited: _reloadDebounce.restart()
+    }
+    Timer {
+        id: _reloadDebounce
+        interval: 300
+        repeat: false
+        onTriggered: Quickshell.reload()
     }
 
     // ── IPC handler ───────────────────────────────────────────────────────────
@@ -75,21 +97,40 @@ ShellRoot {
     IpcHandler {
         target: "qs"
 
-        function toggle_control_center()   { ModuleControllers.toggle("control-center") }
+        function toggle_control_center() {
+            ModuleControllers.toggle("control-center");
+        }
 
-        function toggle(moduleId: string)          { ModuleControllers.toggle(moduleId) }
-        function show(moduleId: string)            { ModuleControllers.show(moduleId) }
-        function hide(moduleId: string)            { ModuleControllers.hide(moduleId) }
+        function toggle(moduleId: string) {
+            ModuleControllers.toggle(moduleId);
+        }
+        function show(moduleId: string) {
+            ModuleControllers.show(moduleId);
+        }
+        function hide(moduleId: string) {
+            ModuleControllers.hide(moduleId);
+        }
 
-        function volume_up()               { _changeVolume(0.05) }
-        function volume_down()             { _changeVolume(-0.05) }
-        function volume_mute()             { _toggleMute() }
+        function volume_up() {
+            _changeVolume(0.05);
+        }
+        function volume_down() {
+            _changeVolume(-0.05);
+        }
+        function volume_mute() {
+            _toggleMute();
+        }
 
-        function set_wallpaper(path: string) { if (path) Config.updateWallpaper({ current: path }) }
+        function set_wallpaper(path: string) {
+            if (path)
+                Config.updateWallpaper({
+                    current: path
+                });
+        }
 
         function wallpaper_random() {
-            _wpRandProc.folder = Config.wallpaper.folder || "~/Pictures/Wallpaper"
-            _wpRandProc.running = true
+            _wpRandProc.folder = Config.wallpaper.folder || "~/Pictures/Wallpaper";
+            _wpRandProc.running = true;
         }
     }
 }

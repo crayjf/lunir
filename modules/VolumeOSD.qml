@@ -9,6 +9,7 @@ PanelWindow {
     id: win
 
     aboveWindows: true
+    screen: Quickshell.screens[0]
     focusable: false
     WlrLayershell.layer: WlrLayershell.Overlay
     WlrLayershell.namespace: Config.namespaceFor("volume")
@@ -26,7 +27,7 @@ PanelWindow {
     readonly property var _sinkAudio: _sink ? _sink.audio : null
     readonly property color _textColor: Theme.text
     readonly property color _accentColor: Theme.accent
-    readonly property color _panelColor: Theme.surface
+    readonly property color _panelColor: Theme.background
     readonly property color _trackColor: Theme.track
     readonly property color _mutedText: Theme.textMuted
 
@@ -76,7 +77,9 @@ PanelWindow {
                 height: 32
                 radius: Theme.radiusSmall
                 anchors.verticalCenter: parent.verticalCenter
-                color: win.volumeMuted ? Theme.surfaceHover : Theme.surfaceRaised
+                color: win.volumeMuted
+                    ? Qt.rgba(win._accentColor.r, win._accentColor.g, win._accentColor.b, 0.18)
+                    : Theme.accent
 
                 Canvas {
                     anchors.centerIn: parent

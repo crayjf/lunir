@@ -5,6 +5,10 @@ import Quickshell
 Singleton {
     readonly property var _moduleFiles: ({
         clock: "ClockModule.qml",
+        weekday: "WeekdayModule.qml",
+        date: "DateModule.qml",
+        time: "TimeModule.qml",
+        progress: "ProgressModule.qml",
         calendar: "CalendarModule.qml",
         today: "CalendarModule.qml",
         weather: "WeatherModule.qml",
@@ -13,51 +17,29 @@ Singleton {
         notifications: "NotificationsModule.qml",
         audio: "AudioModule.qml",
         system: "SystemModule.qml",
-        task: "TaskModule.qml",
-        note: "NoteModule.qml",
         wallpaper: "WallpaperModule.qml",
         quote: "QuoteModule.qml",
         garmin: "GarminModule.qml",
-        empty: "EmptyModule.qml",
     })
 
-    readonly property var desktopModules: [
-        {
-            id: "desktop-clock",
-            type: "clock",
-            x: 940,
-            y: 20,
-            width: 660,
-            height: 280,
-            widgetBackground: "#00000000",
-        },
-        {
-            id: "desktop-quote",
-            type: "quote",
-            x: 960,
-            y: 340,
-            width: 580,
-            height: 100,
-            widgetBackground: "#00000000",
-        },
-        {
-            id: "desktop-cava",
-            type: "cava",
-            height: 220,
-            minHeight: 120,
-            spanMonitorWidth: true,
-            stickToBottom: true,
-            maxHeightRatio: 0.25,
-            widgetBackground: "#00000000",
-            widgetBorderColor: "#00000000",
-            widgetBorderWidth: 0,
-            widgetBorderRadius: 0,
-            props: { bars: 120 },
-        },
-    ]
+    readonly property var desktopModules: (Config.desktopModules || []).map(function(module) {
+        if (!module || typeof module !== "object")
+            return module
+
+        const merged = Object.assign({}, module)
+        if (merged.type === "cava") {
+            if (merged.height === undefined)
+                merged.height = Config.cava.height || 220
+            merged.props = Object.assign({}, Config.cava)
+            if (merged.color !== undefined)
+                merged.props.barColor = merged.color
+        }
+        return merged
+    })
 
     function url(type) {
-        return Qt.resolvedUrl("../modules/" + (_moduleFiles[type] || _moduleFiles.empty))
+        const file = _moduleFiles[type]
+        return file ? Qt.resolvedUrl("../modules/" + file) : ""
     }
 
     function sidebarConfig(type, extraProps) {
@@ -71,8 +53,8 @@ Singleton {
             case "calendar":
             case "today": return Config.calendar
             case "launcher": return Config.launcher
-            case "task": return { tasks: Config.task }
-            case "note": return { tasks: Config.note }
+            case "garmin": return Config.garmin
+            case "cava": return Config.cava
             default: return {}
         }
     }

@@ -254,7 +254,7 @@ Item {
     Rectangle {
         anchors.fill: parent
         radius: Theme.radiusLarge
-        color: Theme.surface
+        color: "transparent"
 
         WheelHandler {
             target: null
@@ -276,28 +276,13 @@ Item {
                     height: 18
 
                     Text {
-                        anchors.left: parent.left
-                        anchors.right: dayCount.left
-                        anchors.rightMargin: 8
-                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.centerIn: parent
                         text: root._dayHeader()
                         font.family: Theme.fontFamily
                         font.pixelSize: 9
                         font.letterSpacing: 1.6
                         color: root._mutedText
-                        elide: Text.ElideRight
-                    }
-
-                    Text {
-                        id: dayCount
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 20
-                        text: String(root._displayEvents.length)
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 9
-                        color: root._textColor
-                        horizontalAlignment: Text.AlignRight
+                        horizontalAlignment: Text.AlignHCenter
                     }
                 }
 
@@ -318,7 +303,7 @@ Item {
                             height: 30
                             radius: 12
                             visible: root._displayEvents.length === 0
-                            color: Theme.surfaceRaised
+                            color: "transparent"
 
                             Text {
                                 anchors.centerIn: parent
@@ -338,11 +323,10 @@ Item {
                                 width: parent.width
                                 height: 32
                                 radius: 12
-                                color: Theme.surfaceRaised
+                                color: "transparent"
 
                                 Row {
                                     anchors.fill: parent
-                                    anchors.leftMargin: 8
                                     anchors.rightMargin: 8
                                     spacing: 7
 
@@ -456,7 +440,7 @@ Item {
                                 : cell.isToday
                                     ? Qt.rgba(root._accentColor.r, root._accentColor.g, root._accentColor.b, 0.14)
                                     : cell.events.length > 0
-                                        ? Theme.surfaceRaised
+                                        ? "transparent"
                                         : "transparent"
 
                             Text {

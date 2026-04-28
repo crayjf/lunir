@@ -152,7 +152,7 @@ Item {
         id: heroArea
         anchors.fill: parent
         readonly property real _previewScale: 0.85
-        readonly property real _centerGap: 4
+        readonly property real _centerGap: 12
         readonly property real _previewRadius: 18
 
         function _lerp(a, b, t) { return a + (b - a) * t }
@@ -233,7 +233,7 @@ Item {
 
             Item {
                 id: leftPreviewWrap
-                anchors.left: previewFrame.left
+                anchors.left: parent.left
                 anchors.right: mainPreview.left
                 anchors.top: previewFrame.top
                 anchors.bottom: previewFrame.bottom
@@ -245,7 +245,7 @@ Item {
                     id: leftPreview
                     anchors.fill: parent
                     radius: heroArea._previewRadius
-                    color: Theme.surfaceRaised
+                    color: Theme.accent
 
                     Image {
                         anchors.fill: parent
@@ -258,7 +258,7 @@ Item {
                     Rectangle {
                         anchors.fill: parent
                         visible: root._previousPath === ""
-                        color: Theme.surfaceRaised
+                        color: Theme.accent
                     }
                 }
 
@@ -280,7 +280,7 @@ Item {
             Item {
                 id: rightPreviewWrap
                 anchors.left: mainPreview.right
-                anchors.right: previewFrame.right
+                anchors.right: parent.right
                 anchors.top: previewFrame.top
                 anchors.bottom: previewFrame.bottom
                 anchors.leftMargin: heroArea._centerGap
@@ -291,7 +291,7 @@ Item {
                     id: rightPreview
                     anchors.fill: parent
                     radius: heroArea._previewRadius
-                    color: Theme.surfaceRaised
+                    color: Theme.accent
 
                     Image {
                         anchors.fill: parent
@@ -304,7 +304,7 @@ Item {
                     Rectangle {
                         anchors.fill: parent
                         visible: root._nextPath === ""
-                        color: Theme.surfaceRaised
+                        color: Theme.accent
                     }
                 }
 
@@ -344,7 +344,7 @@ Item {
                 Rectangle {
                     anchors.fill: parent
                     visible: !root._hasSelection
-                    color: Theme.surfaceRaised
+                    color: Theme.accent
                 }
 
                 Item {
@@ -356,7 +356,7 @@ Item {
                         height: 58
                         radius: 18
                         anchors.centerIn: parent
-                        color: Theme.surfaceRaised
+                        color: Theme.accent
 
                         Rectangle {
                             width: 24
@@ -386,6 +386,7 @@ Item {
             Item {
                 anchors.fill: parent
                 visible: root._isAnimating
+                clip: true
 
                 ClippingRectangle {
                     readonly property var rect: heroArea._animatedRect("prev")
@@ -394,7 +395,7 @@ Item {
                     width: rect.w
                     height: rect.h
                     radius: heroArea._previewRadius
-                    color: Theme.surfaceRaised
+                    color: Theme.accent
                     z: root._animDir < 0 ? 3 : 1
                     visible: root._animDir < 0 || root._animDir > 0
 
@@ -434,7 +435,7 @@ Item {
                     width: rect.w
                     height: rect.h
                     radius: heroArea._previewRadius
-                    color: Theme.surfaceRaised
+                    color: Theme.accent
                     z: root._animDir > 0 ? 3 : 1
 
                     Image {
@@ -454,7 +455,7 @@ Item {
                     width: rect.w
                     height: rect.h
                     radius: heroArea._previewRadius
-                    color: Theme.surfaceRaised
+                    color: Theme.accent
                     z: 0
 
                     Image {

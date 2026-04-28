@@ -11,15 +11,15 @@ Singleton {
     property var weather: ({})
     property var calendar: ({})
     property var launcher: ({})
-    property var task: ([])
-    property var note: ([])
+    property var garmin: ({})
+    property var desktopModules: ([])
     property var controlCenter: ({})
+    property var cava: ({})
 
     readonly property var _defaultTheme: ({
         background: "#191A21FF",
         surface: "#282A36F0",
-        surfaceRaised: "#44475AE0",
-        surfaceHover: "#FF79C629",
+
         border: "#F8F8F21F",
         text: "#F8F8F2FF",
         textMuted: "#F8F8F2B3",
@@ -34,8 +34,7 @@ Singleton {
     readonly property var _themeComments: ({
         background: "base background color used behind major surfaces",
         surface: "main panel/card fill color",
-        surfaceRaised: "slightly brighter fill for nested cards and icon buttons",
-        surfaceHover: "hover/active fill for small controls",
+
         border: "normal outline color for panels and popups, or #rainbow for a hue border",
         text: "primary readable text color",
         textMuted: "secondary labels and less prominent text",
@@ -72,7 +71,61 @@ Singleton {
         iconThemePaths: [],
     })
 
-    readonly property var _defaultTask: ([])
+    readonly property var _defaultGarmin: ({
+        email: "",
+        password: "",
+        refreshInterval: 10,
+    })
+
+    readonly property var _defaultDesktopModules: ([
+        {
+            id: "desktop-weekday",
+            type: "weekday",
+            x: 940,
+            y: 20,
+            width: 660,
+            height: 110,
+            widgetBackground: "#00000000",
+        },
+        {
+            id: "desktop-date",
+            type: "date",
+            x: 940,
+            y: 135,
+            width: 660,
+            height: 40,
+            widgetBackground: "#00000000",
+        },
+        {
+            id: "desktop-time",
+            type: "time",
+            x: 940,
+            y: 180,
+            width: 660,
+            height: 55,
+            widgetBackground: "#00000000",
+        },
+        {
+            id: "desktop-progress",
+            type: "progress",
+            x: 940,
+            y: 235,
+            width: 660,
+            height: 26,
+            minHeight: 6,
+            widgetBackground: "#00000000",
+        },
+        {
+            id: "desktop-cava",
+            type: "cava",
+            height: 220,
+            minHeight: 120,
+            spanMonitorWidth: true,
+            stickToBottom: true,
+            maxHeightRatio: 0.25,
+            widgetBackground: "#00000000",
+        },
+    ])
 
     readonly property var _defaultControlCenter: ({
         marginX: 12,
@@ -81,9 +134,15 @@ Singleton {
         animationTime: 180,
     })
 
+    readonly property var _defaultCava: ({
+        bars: 120,
+        barColor: null,
+        height: 220,
+    })
+
     readonly property string _xdgConfigHome: Quickshell.env("XDG_CONFIG_HOME")
         || (Quickshell.env("HOME") + "/.config")
-    readonly property string _configDir: _xdgConfigHome + "/lunir-qs"
+    readonly property string _configDir: _xdgConfigHome + "/lunir"
     readonly property string _configFile: _configDir + "/config.json"
 
     property bool loaded: false
@@ -130,15 +189,132 @@ Singleton {
         return Object.assign(root._copy(defaults), cleaned)
     }
 
-    function _normalizeTaskList(value) {
-        let source = value
-        if (source && typeof source === "object" && !Array.isArray(source) && Array.isArray(source.tasks))
-            source = source.tasks
-        if (!Array.isArray(source))
-            return []
-        return source.filter(function(entry) {
-            return typeof entry === "string"
+    function _normalizeDesktopModules(value) {
+        const defaults = _copy(_defaultDesktopModules)
+        if (value === undefined)
+            return defaults
+        if (!Array.isArray(value))
+            return defaults
+
+        const source = _migrateLegacyDesktopModules(value)
+        const byId = {}
+        const extras = []
+        for (const module of source) {
+            if (!module || typeof module !== "object")
+                continue
+            if (!module.id || !module.type)
+                continue
+            byId[module.id] = _copy(module)
+        }
+
+        const merged = defaults.map(function(defaultModule) {
+            const override = byId[defaultModule.id]
+            return override ? Object.assign({}, defaultModule, override) : defaultModule
         })
+
+        for (const module of source) {
+            if (!module || typeof module !== "object" || !module.id || !module.type)
+                continue
+            const isDefault = defaults.some(function(defaultModule) {
+                return defaultModule.id === module.id
+            })
+            if (!isDefault)
+                extras.push(_copy(module))
+        }
+
+        return merged.concat(extras)
+    }
+
+    function _migrateLegacyDesktopModules(value) {
+        const modules = _copy(value)
+        const legacyIndex = modules.findIndex(function(module) {
+            return module && module.id === "desktop-clock" && module.type === "clock"
+        })
+        const hasSplitModules = modules.some(function(module) {
+            return module && typeof module.id === "string" && (
+                module.id.indexOf("desktop-clock-") === 0 ||
+                module.id.indexOf("desktop-") === 0 && ["desktop-weekday", "desktop-date", "desktop-time", "desktop-progress"].indexOf(module.id) >= 0
+            )
+        })
+
+        if (legacyIndex >= 0 && !hasSplitModules) {
+            const legacy = modules[legacyIndex]
+            const x = legacy.x ?? 940
+            const y = legacy.y ?? 20
+            const width = legacy.width ?? 660
+            const height = legacy.height ?? 280
+            const background = legacy.widgetBackground ?? "#00000000"
+            const color = legacy.color
+
+            modules.splice(legacyIndex, 1,
+                {
+                    id: "desktop-weekday",
+                    type: "weekday",
+                    x: x,
+                    y: y,
+                    width: width,
+                    height: Math.max(90, Math.round(height * 0.42)),
+                    widgetBackground: background,
+                    color: color,
+                },
+                {
+                    id: "desktop-date",
+                    type: "date",
+                    x: x,
+                    y: y + Math.max(90, Math.round(height * 0.42)),
+                    width: width,
+                    height: 36,
+                    widgetBackground: background,
+                    color: color,
+                },
+                {
+                    id: "desktop-time",
+                    type: "time",
+                    x: x,
+                    y: y + Math.max(126, Math.round(height * 0.42) + 36),
+                    width: width,
+                    height: 44,
+                    widgetBackground: background,
+                    color: color,
+                },
+                {
+                    id: "desktop-progress",
+                    type: "progress",
+                    x: x,
+                    y: y + Math.max(170, height - 24),
+                    width: width,
+                    height: 24,
+                    minHeight: 6,
+                    widgetBackground: background,
+                    color: color,
+                }
+            )
+        }
+
+        for (let i = 0; i < modules.length; i++) {
+            const module = modules[i]
+            if (!module || typeof module !== "object")
+                continue
+            if (module.id === "desktop-clock-weekday") {
+                modules[i] = Object.assign({}, module, { id: "desktop-weekday", type: "weekday" })
+            } else if (module.id === "desktop-clock-date") {
+                modules[i] = Object.assign({}, module, { id: "desktop-date", type: "date" })
+            } else if (module.id === "desktop-clock-time") {
+                modules[i] = Object.assign({}, module, { id: "desktop-time", type: "time" })
+            } else if (module.id === "desktop-clock-progress") {
+                modules[i] = Object.assign({}, module, { id: "desktop-progress", type: "progress" })
+            } else if (module.type === "clockWeekday") {
+                modules[i] = Object.assign({}, module, { type: "weekday" })
+            } else if (module.type === "clockDate") {
+                modules[i] = Object.assign({}, module, { type: "date" })
+            } else if (module.type === "clockTime") {
+                modules[i] = Object.assign({}, module, { type: "time" })
+            } else if (module.type === "clockProgress") {
+                modules[i] = Object.assign({}, module, { type: "progress" })
+            }
+        }
+
+        return modules
     }
 
     function _moduleProps(parsed, type) {
@@ -155,9 +331,10 @@ Singleton {
         weather = _copy(_defaultWeather)
         calendar = _copy(_defaultCalendar)
         launcher = _copy(_defaultLauncher)
-        task = _copy(_defaultTask)
-        note = _copy(_defaultTask)
+        desktopModules = _copy(_defaultDesktopModules)
+        garmin = _copy(_defaultGarmin)
         controlCenter = _copy(_defaultControlCenter)
+        cava = _copy(_defaultCava)
     }
 
     function _apply(parsed) {
@@ -165,8 +342,6 @@ Singleton {
 
         const legacyShell = parsed.shell && typeof parsed.shell === "object" ? parsed.shell : {}
         const legacyLauncherProps = _moduleProps(parsed, "launcher")
-        const legacyTaskProps = _moduleProps(parsed, "task")
-        const legacyNoteProps = _moduleProps(parsed, "note")
 
         theme = _merge(_defaultTheme, parsed.theme)
         wallpaper = _merge(_defaultWallpaper, parsed.wallpaper)
@@ -176,15 +351,10 @@ Singleton {
             iconTheme: legacyShell.launcherIconTheme,
             iconThemePaths: legacyShell.launcherIconThemePaths,
         }, legacyLauncherProps, parsed.launcher || {}))
-        task = _normalizeTaskList(parsed.task)
-        if (task.length === 0)
-            task = _normalizeTaskList(parsed.note)
-        if (task.length === 0)
-            task = _normalizeTaskList(legacyTaskProps)
-        if (task.length === 0)
-            task = _normalizeTaskList(legacyNoteProps)
-        note = task
+        desktopModules = _normalizeDesktopModules(parsed.desktopModules)
+        garmin = _merge(_defaultGarmin, parsed.garmin)
         controlCenter = _merge(_defaultControlCenter, parsed.controlCenter)
+        cava = _merge(_defaultCava, parsed.cava)
     }
 
     function _applyFromFile() {
@@ -262,7 +432,9 @@ Singleton {
         _assign(data, "weather", weather, _defaultWeather)
         _assign(data, "calendar", calendar, _defaultCalendar)
         _assign(data, "launcher", launcher, _defaultLauncher)
-        _assign(data, "task", task, _defaultTask)
+        _assign(data, "desktopModules", desktopModules, _defaultDesktopModules)
+        _assign(data, "garmin", garmin, _defaultGarmin)
+        _assign(data, "cava", cava, _defaultCava)
         data.controlCenter = controlCenter
         configView.setText(_stringifyConfig(data))
     }
@@ -274,7 +446,9 @@ Singleton {
         _assign(data, "weather", weather, _defaultWeather)
         _assign(data, "calendar", calendar, _defaultCalendar)
         _assign(data, "launcher", launcher, _defaultLauncher)
-        _assign(data, "task", task, _defaultTask)
+        _assign(data, "desktopModules", desktopModules, _defaultDesktopModules)
+        _assign(data, "garmin", garmin, _defaultGarmin)
+        _assign(data, "cava", cava, _defaultCava)
         data.controlCenter = controlCenter
 
         _pendingData = data
@@ -311,7 +485,7 @@ Singleton {
             lines.push(_themeLine(themeKeys[i], i === themeKeys.length - 1))
         lines.push("  }")
 
-        const sections = ["wallpaper", "weather", "calendar", "launcher", "task", "controlCenter"].filter(function(key) {
+        const sections = ["wallpaper", "weather", "calendar", "launcher", "desktopModules", "garmin", "cava", "controlCenter"].filter(function(key) {
             return data[key] !== undefined
         })
         if (sections.length > 0)
@@ -329,18 +503,24 @@ Singleton {
         _scheduleSave()
     }
 
-    function updateTask(updates) {
-        task = _normalizeTaskList(updates)
-        note = task
-        _scheduleSave()
-    }
+    function updateDesktopModule(id, updates) {
+        if (!id || !updates || typeof updates !== "object")
+            return
 
-    function updateNote(updates) {
-        updateTask(updates)
+        let changed = false
+        desktopModules = desktopModules.map(function(module) {
+            if (!module || module.id !== id)
+                return module
+            changed = true
+            return Object.assign({}, module, updates)
+        })
+
+        if (changed)
+            _scheduleSave()
     }
 
     function namespaceFor(surface) {
-        return "lunir-qs-" + surface
+        return "lunir-" + surface
     }
 
     Component.onCompleted: {

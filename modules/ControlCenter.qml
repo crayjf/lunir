@@ -1,5 +1,6 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
+import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
@@ -25,7 +26,6 @@ PanelWindow {
     readonly property color _softText: Theme.textMuted
     readonly property color _panelColor: Theme.surface
     readonly property int _sectionGap: 12
-    readonly property int _noteMinHeight: 120
     readonly property var _days: ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"]
     readonly property var _months: ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
                                     "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"]
@@ -89,7 +89,7 @@ PanelWindow {
     onAnimProgressChanged: { if (animProgress <= 0.0) visible = false }
 
     readonly property string _animStyle: Config.controlCenter.animationStyle || "Move"
-    readonly property real _contentOpacity: _animStyle === "Fade" ? animProgress : 1.0
+    readonly property real _contentOpacity: (_animStyle === "Fade" || _animStyle === "Blur") ? animProgress : 1.0
 
     function show() {
         visible = true
@@ -115,6 +115,8 @@ PanelWindow {
     function resetTransientState() {
         if (calendarSection.moduleItem && calendarSection.moduleItem._resetDisplayDay)
             calendarSection.moduleItem._resetDisplayDay()
+        if (notificationsSlot.moduleItem && notificationsSlot.moduleItem._resetStack)
+            notificationsSlot.moduleItem._resetStack()
     }
     function _wallpaperModule() {
         return wallpaperSlot.moduleItem
@@ -269,13 +271,17 @@ done`
         width: parent.width
         height: parent.height
         opacity: root._contentOpacity
+        layer.enabled: root._animStyle === "Blur"
+        layer.effect: MultiEffect {
+            blurEnabled: true
+            blur: 1.0 - root.animProgress
+            blurMax: 32
+        }
 
     Rectangle {
         anchors.fill: parent
         radius: Theme.radiusLarge
         color: Theme.background
-        border.width: Theme.borderWidth
-        border.color: Theme.border
 
         Item {
             id: focusItem
@@ -317,7 +323,7 @@ done`
 
         RainbowBorder {
             anchors.fill: parent
-            visible: Theme.borderIsRainbow && Theme.borderWidth > 0
+            visible: false
             radius: parent.radius
             lineWidth: Theme.borderWidth
         }
@@ -331,9 +337,9 @@ done`
         anchors.topMargin: 14
         anchors.leftMargin: 14
         anchors.rightMargin: 14
-        height: 42
+        height: 34
         radius: Theme.radiusLarge
-        color: root._panelColor
+        color: "transparent"
 
         Item {
             anchors.fill: parent
@@ -440,14 +446,14 @@ done`
 
     Item {
         id: contentArea
-        anchors.top: headerPanel.bottom
+        anchors.top: perfSection.bottom
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.bottom: perfSection.top
-        anchors.topMargin: root._sectionGap
+        anchors.bottom: parent.bottom
+        anchors.topMargin: 0
         anchors.leftMargin: 14
         anchors.rightMargin: 14
-        anchors.bottomMargin: root._sectionGap
+        anchors.bottomMargin: 14
 
         ScrollView {
             id: upperScroll
@@ -456,7 +462,7 @@ done`
             anchors.top: parent.top
             height: Math.max(0, Math.min(
                 upperContent.implicitHeight,
-                contentArea.height - wallpaperSection.height - root._noteMinHeight - (root._sectionGap * 2)
+                contentArea.height - wallpaperSection.height - garminSection.height - quoteSection.height - notificationsSection.height - (root._sectionGap * 4)
             ))
             clip: true
             ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
@@ -479,56 +485,83 @@ done`
                 }
 
                 Item {
-                    id: notificationsSection
                     width: parent.width
-                    height: 216
+                    height: weatherSection.height + 6 + calendarFrame.height
 
-                    ModuleSlot {
-                        anchors.fill: parent
-                        moduleType: "notifications"
+                    Item {
+                        id: weatherSection
+                        anchors.top: parent.top
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        height: 100
+
+                        ModuleSlot {
+                            anchors.fill: parent
+                            moduleType: "weather"
+                        }
                     }
-                }
 
-                Item {
-                    id: weatherSection
-                    width: parent.width
-                    height: 126
+                    Item {
+                        id: calendarFrame
+                        anchors.top: weatherSection.bottom
+                        anchors.topMargin: 6
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        height: 210
 
-                    ModuleSlot {
-                        anchors.fill: parent
-                        moduleType: "weather"
-                    }
-                }
-
-                Item {
-                    id: calendarFrame
-                    width: parent.width
-                    height: 210
-
-                    ModuleSlot {
-                        id: calendarSection
-                        anchors.fill: parent
-                        moduleType: "calendar"
+                        ModuleSlot {
+                            id: calendarSection
+                            anchors.fill: parent
+                            moduleType: "calendar"
+                        }
                     }
                 }
             }
         }
 
         Item {
-            id: noteSection
+            id: notificationsSection
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: upperScroll.bottom
             anchors.topMargin: root._sectionGap
-            anchors.bottom: wallpaperSection.top
-            anchors.bottomMargin: root._sectionGap
-            clip: true
+            height: 50
 
             ModuleSlot {
+                id: notificationsSlot
                 anchors.fill: parent
-                moduleType: "task"
+                moduleType: "notifications"
             }
         }
+
+                Item {
+                    id: garminSection
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: quoteSection.top
+                    anchors.bottomMargin: root._sectionGap
+                    height: 160
+
+                    ModuleSlot {
+                        anchors.fill: parent
+                        moduleType: "garmin"
+                    }
+                }
+
+                Item {
+                    id: quoteSection
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: wallpaperSection.top
+                    anchors.bottomMargin: 4
+                    height: quoteSlot.moduleItem ? quoteSlot.moduleItem.preferredHeight : 90
+
+                    ModuleSlot {
+                        id: quoteSlot
+                        anchors.fill: parent
+                        moduleType: "quote"
+                    }
+                }
 
                 Item {
                     id: wallpaperSection
@@ -547,12 +580,12 @@ done`
 
     Item {
         id: perfSection
+        anchors.top: headerPanel.bottom
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.bottom: parent.bottom
+        anchors.topMargin: 0
         anchors.leftMargin: 14
         anchors.rightMargin: 14
-        anchors.bottomMargin: 14
         height: systemSlot.moduleItem ? systemSlot.moduleItem.preferredHeight : 252
 
         ModuleSlot {
@@ -564,6 +597,22 @@ done`
     }
 
     } // contentContainer
+
+    // Border rendered outside contentContainer so it is unaffected by opacity/blur animations
+    Rectangle {
+        anchors.fill: contentContainer
+        radius: Theme.radiusLarge
+        color: "transparent"
+        border.width: Theme.borderWidth
+        border.color: Theme.border
+        visible: !Theme.borderIsRainbow || Theme.borderWidth <= 0
+    }
+    RainbowBorder {
+        anchors.fill: contentContainer
+        visible: Theme.borderIsRainbow && Theme.borderWidth > 0
+        radius: Theme.radiusLarge
+        lineWidth: Theme.borderWidth
+    }
 
     Component.onCompleted: {
         ModuleControllers.register(root.hostControllerId, {

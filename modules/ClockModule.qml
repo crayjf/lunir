@@ -4,8 +4,18 @@ import "../lib"
 Item {
     id: root
     property var moduleConfig: null
-    readonly property color _textColor: Theme.color(moduleConfig, "textColor", "#F8F8F2FF")
-    readonly property color _accentColor: Theme.color(moduleConfig, "accentColor", "#FF79C6FF")
+    readonly property string _textColorStr: Theme.value(moduleConfig, "textColor", "#F8F8F2FF")
+    readonly property string _accentColorStr: Theme.value(moduleConfig, "accentColor", "#FF79C6FF")
+    readonly property bool _textIsRainbow: Theme.isRainbow(moduleConfig, "textColor")
+    readonly property bool _accentIsRainbow: Theme.isRainbow(moduleConfig, "accentColor")
+    readonly property real _textRainbowAlpha: Theme.rainbowAlpha(moduleConfig, "textColor")
+    readonly property real _accentRainbowAlpha: Theme.rainbowAlpha(moduleConfig, "accentColor")
+    readonly property color _textColor: _textIsRainbow
+        ? Theme.positionalRainbowColor(moduleConfig, _textRainbowAlpha)
+        : Theme.parse(_textColorStr, "#F8F8F2FF")
+    readonly property color _accentColor: _accentIsRainbow
+        ? Theme.positionalRainbowColor(moduleConfig, _accentRainbowAlpha)
+        : Theme.parse(_accentColorStr, "#FF79C6FF")
 
     readonly property var _DAYS:   ["SUNDAY","MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY"]
     readonly property var _MONTHS: ["JANUARY","FEBRUARY","MARCH","APRIL","MAY","JUNE",
@@ -22,7 +32,7 @@ Item {
         const m = String(now.getMinutes()).padStart(2, "0")
         dayText  = _DAYS[now.getDay()]
         dateText = now.getDate() + " " + _MONTHS[now.getMonth()] + " " + now.getFullYear()
-        timeText = "-   " + h + ":" + m + "   -"
+        timeText = h + ":" + m
         dayFrac  = (now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()) / 86400
     }
 

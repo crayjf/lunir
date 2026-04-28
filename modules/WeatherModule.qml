@@ -19,7 +19,7 @@ Item {
     readonly property color _mutedText: Theme.textMuted
     readonly property color _subtleText: Theme.textMuted
     readonly property color _panelColor: Theme.surface
-    readonly property color _raisedColor: Theme.surfaceRaised
+    readonly property color _raisedColor: Theme.accent
     readonly property color _borderColor: Theme.border
     readonly property color _frameColor: _panelColor
     readonly property color _lineColor: Theme.alpha(_borderColor, 0.7)
@@ -331,9 +331,9 @@ Item {
         Rectangle {
             anchors.fill: parent
             radius: Theme.radiusLarge
-            color: root._frameColor
-            border.color: root._nativePanel ? "transparent" : root._lineColor
-            border.width: root._nativePanel ? 0 : 1
+            color: "transparent"
+            border.color: "transparent"
+            border.width: 0
 
             Column {
                 visible: !root._isEmptyState
@@ -341,163 +341,69 @@ Item {
                 anchors.margins: root._compact ? 10 : 12
                 spacing: 8
 
-                Item {
+                Row {
                     width: parent.width
-                    height: root._compact ? 14 : 24
+                    height: root._compact ? 32 : 34
+                    spacing: 8
 
-                    Row {
-                        anchors.left: parent.left
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 6
-
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: root.tempText
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 16
-                            font.bold: true
-                            color: root._textColor
-                        }
-
-                        Column {
-                            anchors.verticalCenter: parent.verticalCenter
-                            spacing: 0
-                            width: root._compact ? 30 : 34
-
-                            Text {
-                                width: parent.width
-                                height: 9
-                                text: root.rangeText.split("  ")[0]
-                                font.family: Theme.fontFamily
-                                font.pixelSize: 9
-                                color: root._subtleText
-                                horizontalAlignment: Text.AlignLeft
-                            }
-
-                            Text {
-                                width: parent.width
-                                height: 9
-                                text: root.rangeText.split("  ")[1] || ""
-                                font.family: Theme.fontFamily
-                                font.pixelSize: 9
-                                color: root._subtleText
-                                horizontalAlignment: Text.AlignLeft
-                            }
-                        }
-                    }
-
-                    Text {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: root.cityText
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 9
-                        font.letterSpacing: 1.4
-                        color: root._mutedText
-                    }
-
+                    // Box 0: current weather
                     Item {
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: root._compact ? 34 : 40
+                        width: (parent.width - parent.spacing * 4) / 5
                         height: parent.height
 
-                        Text {
-                            anchors.centerIn: parent
-                            anchors.verticalCenterOffset: root._iconOffset(root.conditionIconText, font.pixelSize)
-                            text: root.conditionIconText
-                            font.family: Theme.fontFamily
-                            font.pixelSize: root._compact ? 26 : 31
-                            color: root._textColor
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
-                    }
-                }
+                        Column {
+                            anchors.fill: parent
+                            spacing: 0
 
-                Column {
-                    width: parent.width
-                    spacing: 0
+                            Text {
+                                width: parent.width
+                                height: 9
+                                text: "NOW"
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 7
+                                font.letterSpacing: 1
+                                color: root._mutedText
+                                horizontalAlignment: Text.AlignHCenter
+                            }
 
-                    Row {
-                        visible: root._showIntradayRow
-                        width: parent.width
-                        spacing: 8
+                            Item {
+                                width: parent.width
+                                height: parent.height - 9
 
-                        Repeater {
-                            model: root.intradayData.slice(0, 5)
-
-                            delegate: Item {
-                                required property var modelData
-
-                                width: (parent.width - parent.spacing * 4) / 5
-                                height: root._compact ? 32 : 34
-
-                                Column {
-                                    anchors.fill: parent
-                                    spacing: 0
-
-                                    Text {
-                                        width: parent.width
-                                        height: 9
-                                        text: modelData.label
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: 7
-                                        font.letterSpacing: 1
-                                        color: root._mutedText
-                                        horizontalAlignment: Text.AlignHCenter
-                                    }
+                                Row {
+                                    anchors.centerIn: parent
+                                    spacing: 4
 
                                     Item {
-                                        width: parent.width
-                                        height: parent.height - 9
+                                        width: root._compact ? 18 : 20
+                                        height: parent.height
 
-                                        Row {
+                                        Text {
                                             anchors.centerIn: parent
-                                            spacing: 4
+                                            anchors.verticalCenterOffset: root._iconOffset(root.conditionIconText, font.pixelSize)
+                                            text: root.conditionIconText
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: root._compact ? 22 : 23
+                                            color: root._textColor
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
+                                    }
 
-                                            Item {
-                                                width: root._compact ? 18 : 20
-                                                height: parent.height
+                                    Column {
+                                        width: root._compact ? 24 : 28
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: 0
 
-                                                Text {
-                                                    anchors.centerIn: parent
-                                                    anchors.verticalCenterOffset: root._iconOffset(modelData.icon, font.pixelSize)
-                                                    text: modelData.icon
-                                                    font.family: Theme.fontFamily
-                                                    font.pixelSize: root._compact ? 22 : 23
-                                                    color: root._textColor
-                                                    horizontalAlignment: Text.AlignHCenter
-                                                    verticalAlignment: Text.AlignVCenter
-                                                }
-                                            }
-
-                                            Column {
-                                                width: root._compact ? 24 : 28
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                spacing: 0
-
-                                                Text {
-                                                    width: parent.width
-                                                    height: 8
-                                                    text: modelData.temp
-                                                    font.family: Theme.fontFamily
-                                                    font.pixelSize: 9
-                                                    font.bold: true
-                                                    color: root._textColor
-                                                    horizontalAlignment: Text.AlignHCenter
-                                                }
-
-                                                Text {
-                                                    width: parent.width
-                                                    height: 8
-                                                    text: ""
-                                                    font.family: Theme.fontFamily
-                                                    font.pixelSize: 7
-                                                    color: "transparent"
-                                                    horizontalAlignment: Text.AlignHCenter
-                                                }
-                                            }
+                                        Text {
+                                            width: parent.width
+                                            height: 8
+                                            text: root.tempText.replace(root.tempUnit.replace("°", ""), "")
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 9
+                                            font.bold: true
+                                            color: root._textColor
+                                            horizontalAlignment: Text.AlignHCenter
                                         }
                                     }
                                 }
@@ -505,19 +411,74 @@ Item {
                         }
                     }
 
-                    Item {
-                        visible: !root._showIntradayRow
-                        width: parent.width
-                        height: root._compact ? 32 : 34
+                    // Boxes 1-4: intraday slots, skip Morning (index 0)
+                    Repeater {
+                        model: root._showIntradayRow ? root.intradayData.slice(1, 5) : []
 
-                        Text {
-                            anchors.centerIn: parent
-                            text: root._EMPTY_ICON
-                            font.family: Theme.fontFamily
-                            font.pixelSize: root._compact ? 26 : 28
-                            color: root._mutedText
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
+                        delegate: Item {
+                            required property var modelData
+
+                            width: (parent.width - parent.spacing * 4) / 5
+                            height: parent.height
+
+                            Column {
+                                anchors.fill: parent
+                                spacing: 0
+
+                                Text {
+                                    width: parent.width
+                                    height: 9
+                                    text: modelData.label
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: 7
+                                    font.letterSpacing: 1
+                                    color: root._mutedText
+                                    horizontalAlignment: Text.AlignHCenter
+                                }
+
+                                Item {
+                                    width: parent.width
+                                    height: parent.height - 9
+
+                                    Row {
+                                        anchors.centerIn: parent
+                                        spacing: 4
+
+                                        Item {
+                                            width: root._compact ? 18 : 20
+                                            height: parent.height
+
+                                            Text {
+                                                anchors.centerIn: parent
+                                                anchors.verticalCenterOffset: root._iconOffset(modelData.icon, font.pixelSize)
+                                                text: modelData.icon
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: root._compact ? 22 : 23
+                                                color: root._textColor
+                                                horizontalAlignment: Text.AlignHCenter
+                                                verticalAlignment: Text.AlignVCenter
+                                            }
+                                        }
+
+                                        Column {
+                                            width: root._compact ? 24 : 28
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            spacing: 0
+
+                                            Text {
+                                                width: parent.width
+                                                height: 8
+                                                text: modelData.temp
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: 9
+                                                font.bold: true
+                                                color: root._textColor
+                                                horizontalAlignment: Text.AlignHCenter
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

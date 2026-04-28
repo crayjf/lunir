@@ -33,13 +33,22 @@ Item {
         onExited: {
             root._fetching = false
             refreshBtn.buttonEnabled = true
+            // Take only the last non-empty line — StdioCollector accumulates across runs
+            const lines = fetchStdio.text.trim().split("\n").filter(l => l.trim() !== "")
+            const lastLine = lines.length > 0 ? lines[lines.length - 1] : ""
             try {
-                const data = JSON.parse(fetchStdio.text.trim())
+                const data = JSON.parse(lastLine)
                 if (data.error) {
-                    root._status = data.error.startsWith("rate_limited")
-                        ? "rate limited — retry in 60 min" : "fetch failed"
-                    refreshTimer.interval = data.error.startsWith("rate_limited")
-                        ? 3600000 : root._intervalMin * 60000
+                    if (data.error === "no_tokens") {
+                        root._status = "setup needed — run garmin_setup.py"
+                        refreshTimer.interval = 30000
+                    } else if (data.error.startsWith("rate_limited")) {
+                        root._status = "rate limited — retry in 60 min"
+                        refreshTimer.interval = 3600000
+                    } else {
+                        root._status = data.error
+                        refreshTimer.interval = root._intervalMin * 60000
+                    }
                 } else {
                     root._steps    = data.steps        || 0
                     root._goal     = data.goal         || 10000
@@ -48,18 +57,19 @@ Item {
                     root._status   = ""
                     refreshTimer.interval = root._intervalMin * 60000
                 }
-            } catch (_) {
-                root._status = "parse error"
+            } catch (e) {
+                root._status = "parse error: " + lastLine.substring(0, 60)
                 refreshTimer.interval = root._intervalMin * 60000
             }
-            refreshTimer.restart()
         }
     }
 
     Timer {
         id: refreshTimer
         interval: root._intervalMin * 60000
-        repeat: false
+        repeat: true
+        running: root.visible
+        triggeredOnStart: true
         onTriggered: root._fetch()
     }
 
@@ -70,8 +80,6 @@ Item {
         _status = "fetching…"
         fetchProc.running = true
     }
-
-    Component.onCompleted: _fetch()
 
     // ── UI ────────────────────────────────────────────────────────────────────
     Column {

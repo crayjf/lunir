@@ -11,6 +11,17 @@ Item {
     readonly property color _accentColor: Theme.color(moduleConfig, "accentColor", "#FF79C6FF")
     readonly property var _cfg: moduleConfig ? (moduleConfig.props || {}) : ({})
 
+    // Reactive: re-evaluates whenever Config.cava is reassigned (e.g. on file reload).
+    // Per-widget color wins; global Config.cava.barColor is only a fallback.
+    readonly property string _barColorStr: {
+        if (root._cfg.barColor !== undefined && root._cfg.barColor !== null && root._cfg.barColor !== "")
+            return root._cfg.barColor
+        const live = Config.cava ? Config.cava.barColor : null
+        if (live !== undefined && live !== null) return live
+        return ""
+    }
+    readonly property bool _isRainbow: root._barColorStr.startsWith("#rainbow")
+
     readonly property var players: Mpris.players.values
     readonly property var player: {
         const players = root.players
@@ -23,6 +34,19 @@ Item {
 
     property var _cavaData: []
     property real _displayPeak: 64
+    property real _rainbowPhase: 0
+
+    // Bring back animated rainbow for cava only.
+    Timer {
+        id: rainbowTimer
+        interval: 33
+        repeat: true
+        running: root._isRainbow && root.visible && !root.playing
+        onTriggered: {
+            root._rainbowPhase = (root._rainbowPhase + 0.7) % 360
+            cavaCanvas.requestPaint()
+        }
+    }
 
     function _syncVisualizer() {
         if (!root.visible || !root.playing) {
@@ -38,7 +62,7 @@ Item {
         command: ["sh", "-c",
             "mkdir -p \"$(dirname \"$1\")\" && printf '%s' \"$2\" > \"$1\"",
             "sh", root._cavaCfgPath,
-            "[general]\nbars = " + root._barCount + "\nframerate = 30\nautosens = 1\nsensitivity = 100\n\n" +
+            "[general]\nbars = " + root._barCount + "\nframerate = 60\nautosens = 1\nsensitivity = 100\n\n" +
             "[input]\nmethod = pulse\nsource = auto\n\n" +
             "[output]\nmethod = raw\nraw_target = /dev/stdout\n" +
             "data_format = ascii\nbar_delimiter = 32\nframe_delimiter = 10\nbit_format = 8\n"]
@@ -54,22 +78,29 @@ Item {
 
     Process {
         id: cavaProc
-        command: ["cava", "-p", root._cavaCfgPath]
+        command: ["stdbuf", "-o0", "cava", "-p", root._cavaCfgPath]
         running: false
         stdout: SplitParser {
             splitMarker: "\n"
             onRead: function(data) {
-                const vals = data.trim().split(" ").map(Number)
-                if (vals.length > 0 && !isNaN(vals[0])) {
-                    root._cavaData = vals
-                    const framePeak = Math.max.apply(Math, vals)
-                    if (framePeak > root._displayPeak) {
-                        root._displayPeak = framePeak
-                    } else {
-                        root._displayPeak = Math.max(24, root._displayPeak * 0.92 + framePeak * 0.08)
-                    }
-                    cavaCanvas.requestPaint()
+                const parts = data.trim().split(" ")
+                if (parts.length === 0 || isNaN(+parts[0])) return
+                const vals = new Array(parts.length)
+                let framePeak = 0
+                for (let j = 0; j < parts.length; j++) {
+                    const v = +parts[j]
+                    vals[j] = v
+                    if (v > framePeak) framePeak = v
                 }
+                root._cavaData = vals
+                if (framePeak > root._displayPeak) {
+                    root._displayPeak = framePeak
+                } else {
+                    root._displayPeak = Math.max(24, root._displayPeak * 0.92 + framePeak * 0.08)
+                }
+                if (root._isRainbow)
+                    root._rainbowPhase = (root._rainbowPhase + 0.7) % 360
+                cavaCanvas.requestPaint()
             }
         }
         onExited: {
@@ -98,31 +129,65 @@ Item {
 
             const barCell = width / count
             const gap = Math.max(1, barCell * 0.16)
-            const barWidth = Math.max(1, barCell - gap)
+            const bw = Math.max(1, barCell - gap)
             const maxH = Math.max(1, height)
-            const ac = root._accentColor
             const dynamicPeak = Math.max(24, root._displayPeak)
             const scale = maxH / dynamicPeak
 
+            const cfgHex = root._barColorStr
+            const isRainbow = root._isRainbow
+            const phase = root._rainbowPhase
+            // #rainbowXY: last 2 chars are hex opacity
+            const rainbowAlpha = (isRainbow && cfgHex.length === 10)
+                ? parseInt(cfgHex.substring(8, 10), 16) / 255 : 1.0
+
+            // Precompute fixed-color style string once (no per-bar allocation)
+            let fixedStyle = ""
+            if (!isRainbow && cfgHex.length === 9 && cfgHex[0] === '#') {
+                fixedStyle = "rgba(" +
+                    parseInt(cfgHex.substring(1, 3), 16) + "," +
+                    parseInt(cfgHex.substring(3, 5), 16) + "," +
+                    parseInt(cfgHex.substring(5, 7), 16) + "," +
+                    (parseInt(cfgHex.substring(7, 9), 16) / 255).toFixed(3) + ")"
+            }
+
+            // Precompute accent RGB prefix to avoid per-bar QML property reads
+            const ac = root._accentColor
+            const acR = ac.r * 255 | 0
+            const acG = ac.g * 255 | 0
+            const acB = ac.b * 255 | 0
+
+            // Fixed color: set once — no need to touch fillStyle inside the loop
+            if (fixedStyle) ctx.fillStyle = fixedStyle
+
             for (let i = 0; i < count; i++) {
                 const raw = data[i] || 0
-                const barHeight = Math.min(maxH, Math.round(Math.max(2, raw * scale)))
-                const x = i * barCell + gap / 2
-                const y = height - barHeight
-                const alpha = 0.08 + Math.min(1, raw / dynamicPeak) * 0.28
+                const t = Math.min(1, raw / dynamicPeak)
+                const bh = Math.min(maxH, Math.max(2, (raw * scale + 0.5) | 0))
+                const x = i * barCell + gap * 0.5
+                const y = height - bh
 
-                ctx.fillStyle = Qt.rgba(ac.r, ac.g, ac.b, alpha)
-                const radius = Math.min(4, barWidth / 2, barHeight / 2)
-                ctx.beginPath()
-                ctx.moveTo(x + radius, y)
-                ctx.lineTo(x + barWidth - radius, y)
-                ctx.arcTo(x + barWidth, y, x + barWidth, y + radius, radius)
-                ctx.lineTo(x + barWidth, height)
-                ctx.lineTo(x, height)
-                ctx.lineTo(x, y + radius)
-                ctx.arcTo(x, y, x + radius, y, radius)
-                ctx.closePath()
-                ctx.fill()
+                if (isRainbow) {
+                    // Inline hue→RGB — no array allocation, no cross-object call
+                    const h = (i / count * 360 + phase) % 360
+                    const hp = h / 60
+                    const hi = hp | 0
+                    const c = 0.78, m = 0.22
+                    const xv = c * (1 - Math.abs((hp % 2) - 1))
+                    let r = m, g = m, b = m
+                    if      (hi === 0) { r += c; g += xv }
+                    else if (hi === 1) { r += xv; g += c }
+                    else if (hi === 2) { g += c; b += xv }
+                    else if (hi === 3) { g += xv; b += c }
+                    else if (hi === 4) { r += xv; b += c }
+                    else               { r += c; b += xv }
+                    const a = (rainbowAlpha * (0.12 + t * 0.88)).toFixed(3)
+                    ctx.fillStyle = "rgba(" + (r * 255 | 0) + "," + (g * 255 | 0) + "," + (b * 255 | 0) + "," + a + ")"
+                } else if (!fixedStyle) {
+                    ctx.fillStyle = "rgba(" + acR + "," + acG + "," + acB + "," + (0.08 + t * 0.28).toFixed(3) + ")"
+                }
+
+                ctx.fillRect(x, y, bw, bh)
             }
         }
     }

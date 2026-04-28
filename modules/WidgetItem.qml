@@ -59,19 +59,64 @@ Item {
             : (moduleConfig.y ?? 0)
     }
 
+    function _clampToParent() {
+        if (!parent) return
+        if (!_spanMonitorWidth)
+            _w = Math.min(parent.width, Math.max(_minW, _w))
+        _h = Math.min(_maxAllowedHeight(), Math.min(parent.height, Math.max(_minH, _h)))
+        _x = _spanMonitorWidth ? 0 : Math.max(0, Math.min(_x, parent.width - _w))
+        _y = _stickToBottom
+            ? Math.max(0, parent.height - _h)
+            : Math.max(0, Math.min(_y, parent.height - _h))
+    }
+
+    function _persistGeometry() {
+        if (!moduleConfig || !moduleConfig.id) return
+        _clampToParent()
+
+        const updates = { height: _h }
+        if (!_spanMonitorWidth) {
+            updates.x = _x
+            updates.width = _w
+        }
+        if (!_stickToBottom)
+            updates.y = _y
+
+        Config.updateDesktopModule(moduleConfig.id, updates)
+    }
+
     onModuleConfigChanged: {
         _syncFromConfig()
+        _clampToParent()
         _applyLoaderProps()
     }
-    onParentChanged: _syncFromConfig()
-    on_StickToBottomChanged: _syncFromConfig()
-    on_SpanMonitorWidthChanged: _syncFromConfig()
-    on_MaxHeightRatioChanged: _syncFromConfig()
+    onParentChanged: {
+        _syncFromConfig()
+        _clampToParent()
+    }
+    on_StickToBottomChanged: {
+        _syncFromConfig()
+        _clampToParent()
+    }
+    on_SpanMonitorWidthChanged: {
+        _syncFromConfig()
+        _clampToParent()
+    }
+    on_MaxHeightRatioChanged: {
+        _syncFromConfig()
+        _clampToParent()
+    }
 
     Connections {
         target: win.parent
-        function onWidthChanged() { win._syncFromConfig() }
-        function onHeightChanged() { win._syncFromConfig() }
+        function onWidthChanged() {
+            win._syncFromConfig()
+            win._clampToParent()
+        }
+        function onHeightChanged() {
+            win._syncFromConfig()
+            win._clampToParent()
+        }
     }
 
     function snap(v) { return Math.round(v / 20) * 20 }
@@ -89,22 +134,12 @@ Item {
         id: chrome
         anchors.fill: parent
         color: Theme.color(win.moduleConfig, "widgetBackground", "#282A36F0")
-        radius: Theme.number(win.moduleConfig, "widgetBorderRadius", 12)
-        border.color: Theme.color(win.moduleConfig, "widgetBorderColor", "#F8F8F21F")
-        border.width: Theme.number(win.moduleConfig, "widgetBorderWidth", 1)
+        radius: Theme.radiusSmall
         clip: true
-
-        RainbowBorder {
-            anchors.fill: parent
-            visible: Theme.isRainbowBorder(win.moduleConfig) && chrome.border.width > 0
-            radius: chrome.radius
-            lineWidth: chrome.border.width
-            z: 10
-        }
 
         Item {
             id: contentArea
-            anchors { fill: parent; margins: 8 }
+            anchors.fill: parent
 
             Loader {
                 id: moduleLoader
@@ -117,73 +152,85 @@ Item {
 
     onHostControllerIdChanged: _applyLoaderProps()
 
-    // ── Ctrl + drag to move ────────────────────────────────────────────────────
-    DragHandler {
-        id: moveDrag
-        target: null
-        acceptedModifiers: win.moveModifiers
-        acceptedButtons: Qt.LeftButton
-        grabPermissions: PointerHandler.ApprovesTakeOverByAnything
+    MouseArea {
+        id: interactionArea
+        anchors.fill: parent
+        z: 100
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        hoverEnabled: true
+        preventStealing: true
+        cursorShape: pressedButtons & Qt.RightButton ? Qt.SizeFDiagCursor
+            : (pressedButtons & Qt.LeftButton ? Qt.SizeAllCursor : Qt.ArrowCursor)
 
-        property real _sx: 0
-        property real _sy: 0
+        property real _pressParentX: 0
+        property real _pressParentY: 0
+        property real _startX: 0
+        property real _startY: 0
+        property real _startW: 0
+        property real _startH: 0
 
-        onActiveChanged: {
-            if (active) {
-                win._dragging = true
-                _sx = win._x
-                _sy = win._y
+        function _parentPoint(mouse) {
+            if (!win.parent)
+                return Qt.point(mouse.x, mouse.y)
+            return interactionArea.mapToItem(win.parent, mouse.x, mouse.y)
+        }
+
+        function _finishInteraction() {
+            const wasActive = win._dragging || win._resizing
+            win._dragging = false
+            win._resizing = false
+            win._hideGrid()
+            if (wasActive)
+                win._persistGeometry()
+        }
+
+        onPressed: function(mouse) {
+            const point = _parentPoint(mouse)
+            _pressParentX = point.x
+            _pressParentY = point.y
+            _startX = win._x
+            _startY = win._y
+            _startW = win._w
+            _startH = win._h
+
+            win._dragging = mouse.button === Qt.LeftButton
+            win._resizing = mouse.button === Qt.RightButton
+            if (win._dragging || win._resizing)
                 win._showGrid()
-            } else {
-                win._dragging = false
-                win._hideGrid()
+            mouse.accepted = true
+        }
+
+        onPositionChanged: function(mouse) {
+            if (!win._dragging && !win._resizing)
+                return
+
+            const point = _parentPoint(mouse)
+            const dx = point.x - _pressParentX
+            const dy = point.y - _pressParentY
+
+            if (win._dragging) {
+                if (!win._spanMonitorWidth)
+                    win._x = snap(_startX + dx)
+                if (!win._stickToBottom)
+                    win._y = snap(_startY + dy)
+            } else if (win._resizing) {
+                const nextH = snap(Math.max(win._minH, _startH + dy))
+                if (!win._spanMonitorWidth)
+                    win._w = snap(Math.max(win._minW, _startW + dx))
+                win._h = Math.min(nextH, win._maxAllowedHeight())
+                if (win._stickToBottom && win.parent)
+                    win._y = Math.max(0, win.parent.height - win._h)
             }
+
+            win._clampToParent()
+            mouse.accepted = true
         }
 
-        onCentroidChanged: {
-            if (!active) return
-            const dx = centroid.scenePosition.x - centroid.scenePressPosition.x
-            const dy = centroid.scenePosition.y - centroid.scenePressPosition.y
-            if (!win._spanMonitorWidth)
-                win._x = snap(_sx + dx)
-            if (!win._stickToBottom)
-                win._y = snap(_sy + dy)
-        }
-    }
-
-    // ── Right-drag resize ──────────────────────────────────────────────────────
-    DragHandler {
-        id: resizeDrag
-        target: null
-        acceptedModifiers: Qt.NoModifier
-        acceptedButtons: Qt.RightButton
-        grabPermissions: PointerHandler.CanTakeOverFromAnything
-
-        property real _sw: 0
-        property real _sh: 0
-
-        onActiveChanged: {
-            if (active) {
-                win._resizing = true
-                _sw = win._w
-                _sh = win._h
-                win._showGrid()
-            } else {
-                win._resizing = false
-                win._hideGrid()
-            }
+        onReleased: function(mouse) {
+            _finishInteraction()
+            mouse.accepted = true
         }
 
-        onCentroidChanged: {
-            if (!active) return
-            const dx = centroid.scenePosition.x - centroid.scenePressPosition.x
-            const dy = centroid.scenePosition.y - centroid.scenePressPosition.y
-            const nextH = snap(Math.max(win._minH, _sh + dy))
-            if (!win._spanMonitorWidth)
-                win._w = snap(Math.max(win._minW, _sw + dx))
-            win._h = Math.min(nextH, win._maxAllowedHeight())
-            if (win._stickToBottom && win.parent)
-                win._y = Math.max(0, win.parent.height - win._h)
-        }
+        onCanceled: _finishInteraction()
     }
 }

@@ -1,4 +1,6 @@
 import QtQuick 2.15
+import QtQuick.Shapes 1.15
+import QtQuick.Window 2.15
 import Quickshell
 import Quickshell.Io
 import Quickshell.Networking
@@ -14,10 +16,15 @@ Item {
     readonly property color _mutedText:   Theme.textMuted
     readonly property color _trackColor:  Theme.track
     readonly property color _panelColor:  Theme.surface
-    readonly property color _busyColor:   Theme.surfaceHover
+    readonly property color _okColor:     Qt.rgba(0.314, 0.98, 0.482, 0.65)
 
-    readonly property int preferredHeight: leftCol.implicitHeight
-    readonly property real _systemColumnWidth: (mainRow.width - mainRow.spacing * 2) / 3
+    onWifiConnectedChanged: {
+        if (root._wifiBusy && root.wifiConnected) {
+            wifiBusyTimeout.stop(); wifiPollTimer.stop(); root._wifiBusy = false
+        }
+    }
+
+    readonly property int preferredHeight: systemCol.implicitHeight
 
     // ── Perf state ────────────────────────────────────────────────────────────
     property int    cpuPct:  0;  property string cpuVal:  "—"
@@ -25,6 +32,7 @@ Item {
     property int    gpuPct:  0;  property string gpuVal:  "—"
     property int    vramPct: 0;  property string vramVal: "—"
     property string netDown: "—"; property string netUp: "—"
+    property real   _netDownBps: 0; property real _netUpBps: 0
     property var    _prevCpu: null
     property var    _prevNet: null
 
@@ -38,16 +46,13 @@ Item {
     readonly property string _protonBinDir: (Quickshell.env("HOME") || "") + "/.local/bin"
     readonly property var _devices: Networking.devices.values
 
-    property var    _fallbackEthIfaces:  []
     property var    _fallbackWifiIfaces: []
+    property bool   _wifiBusy:     false
     property bool   _vpnConnected: false
     property string _vpnServer:    ""
     property bool   _vpnBusy:      false
     property bool   _autoConnect:  true
 
-    readonly property var _ethIfaces: root._devices
-        .filter(function(d) { return root._isRealWiredDevice(d) })
-        .map(function(d) { return { name: d.name, connected: d.connected } })
     readonly property var _wifiIfaces: root._devices
         .filter(function(d) { return root._isWifiDevice(d) })
         .map(function(d) {
@@ -55,25 +60,20 @@ Item {
                 ? d.networks.values.find(function(n) { return n.connected }) : null
             return { name: d.name, connected: d.connected, ssid: active ? active.name : "" }
         })
-    readonly property var ethIfaces:  _ethIfaces.length  > 0 ? _ethIfaces  : _fallbackEthIfaces
     readonly property var wifiIfaces: _wifiIfaces.length > 0 ? _wifiIfaces : _fallbackWifiIfaces
-    readonly property bool ethernetConnected: ethIfaces.some(function(i) { return i.connected })
     readonly property bool wifiConnected:     wifiIfaces.some(function(i) { return i.connected })
     readonly property string wifiSsid: {
         const a = wifiIfaces.find(function(i) { return i.connected && i.ssid })
         return a ? a.ssid : ""
     }
     readonly property var _netTiles: [
-        { key: "ethernet", label: "ETHERNET", connected: root.ethernetConnected,
-          detail: root.ethernetConnected ? "Connected" : "Offline", interactive: false },
-        { key: "wifi",     label: "WI-FI",    connected: root.wifiConnected,
-          detail: root.wifiConnected ? (root.wifiSsid || "Connected") : "Offline", interactive: false },
-        { key: "vpn",      label: "VPN",      connected: root._vpnConnected,
-          detail: root._vpnBusy ? "Working…" : (root._vpnConnected ? (root._vpnServer || "Connected") : "Offline"),
-          interactive: true }
+        { key: "vpn",  icon: "", connected: root._vpnConnected,
+          detail: root._vpnBusy ? "Working…" : (root._vpnConnected ? (root._vpnServer.replace("VPN","").replace(/#.*/,"").trim() || "Connected") : "Off"),
+          interactive: true, singleLine: true },
+        { key: "wifi", icon: "", connected: root.wifiConnected,
+          detail: root._wifiBusy ? "Working…" : (root.wifiConnected ? (root.wifiSsid || "Connected") : "Off"),
+          interactive: true, singleLine: true }
     ]
-    readonly property var _wifiTile: root._netTiles.find(function(tile) { return tile.key === "wifi" })
-    readonly property var _secondaryNetTiles: root._netTiles.filter(function(tile) { return tile.key !== "wifi" })
 
     // ── Helpers ───────────────────────────────────────────────────────────────
     function _fmtBytes(n) {
@@ -108,6 +108,9 @@ Item {
             if (parts.length < 2) continue
             const iface = parts[0].trim()
             if (!iface || iface === "lo") continue
+            if (iface.startsWith("proton") || iface.startsWith("ipv6leak")) continue
+            if (iface.startsWith("tun") || iface.startsWith("wg")) continue
+            if (iface.startsWith("docker") || iface.startsWith("virbr") || iface.startsWith("veth")) continue
             const stats = parts[1].trim().split(/\s+/)
             if (stats.length < 9) continue
             rx += parseInt(stats[0]) || 0
@@ -116,18 +119,17 @@ Item {
         return { rx, tx }
     }
 
-    function _isWifiDevice(d)      { return d && d.type === DeviceType.Wifi }
-    function _isRealWiredDevice(d) {
-        if (!d || !d.name || d.name === "lo") return false
-        if (root._isWifiDevice(d)) return false
-        if (d.name.startsWith("proton") || d.name.startsWith("ipv6leak")) return false
-        return true
-    }
+    function _isWifiDevice(d) { return d && d.type === DeviceType.Wifi }
     function _enableWifiScanning() {
         for (const d of root._devices)
             if (root._isWifiDevice(d) && d.scannerEnabled !== true) d.scannerEnabled = true
     }
     function _fetchFallbackSsid(iface) { fallbackSsidProc.iface = iface; fallbackSsidProc.running = true }
+    function _toggleWifi() {
+        if (root._wifiBusy) return
+        root._wifiBusy = true; wifiBusyTimeout.restart()
+        wifiToggleProc.enable = !root.wifiConnected; wifiToggleProc.running = true
+    }
     function _toggleVpn() {
         if (root._vpnBusy) return
         root._vpnBusy = true; vpnBusyTimeout.restart()
@@ -189,8 +191,12 @@ Item {
             const rx = counters.rx, tx = counters.tx
             if (root._prevNet) {
                 const dt = (now - root._prevNet.ts) / 1000
-                root.netDown = "↓ " + root._fmtSpeed(Math.max(0, (rx - root._prevNet.rx) / dt))
-                root.netUp   = "↑ " + root._fmtSpeed(Math.max(0, (tx - root._prevNet.tx) / dt))
+                const downBps = Math.max(0, (rx - root._prevNet.rx) / dt)
+                const upBps   = Math.max(0, (tx - root._prevNet.tx) / dt)
+                root.netDown    = "↓ " + root._fmtSpeed(downBps)
+                root.netUp      = "↑ " + root._fmtSpeed(upBps)
+                root._netDownBps = downBps
+                root._netUpBps   = upBps
             }
             root._prevNet = { rx, tx, ts: now }
         }
@@ -199,7 +205,26 @@ Item {
     Timer { interval: 1000; repeat: true; running: root.visible; triggeredOnStart: true; onTriggered: tickProc.running = true }
 
     // ── Network processes ─────────────────────────────────────────────────────
-    Timer { id: vpnBusyTimeout; interval: 30000; repeat: false; onTriggered: root._vpnBusy = false }
+    Timer { id: wifiBusyTimeout; interval: 10000; repeat: false; onTriggered: { root._wifiBusy = false; wifiPollTimer.stop() } }
+    Timer { id: vpnBusyTimeout;  interval: 30000; repeat: false; onTriggered: root._vpnBusy  = false }
+    Timer { id: wifiPollTimer; interval: 2000; repeat: true; running: false; onTriggered: { root._enableWifiScanning(); ifaceFallbackProc.running = true } }
+
+    Process {
+        id: wifiToggleProc
+        property bool enable: false
+        command: ["nmcli", "radio", "wifi", wifiToggleProc.enable ? "on" : "off"]
+        running: false
+        onExited: {
+            if (wifiToggleProc.enable) {
+                root._enableWifiScanning()
+                ifaceFallbackProc.running = true
+                wifiPollTimer.start()
+            } else {
+                wifiBusyTimeout.stop()
+                root._wifiBusy = false
+            }
+        }
+    }
 
     Process {
         id: ifaceFallbackProc
@@ -210,16 +235,14 @@ Item {
         stdout: StdioCollector { id: ifaceFallbackStdio }
         onExited: {
             const lines = ifaceFallbackStdio.text.trim().split("\n")
-            const eth = [], wifi = []
+            const wifi = []
             for (const line of lines) {
                 const parts = line.split(":")
                 if (parts.length < 2) continue
                 const name = parts[0].trim(), state = parts[1].trim()
                 if (!name || name === "lo" || name.startsWith("proton") || name.startsWith("ipv6leak")) continue
                 if (name.startsWith("wl")) wifi.push({ name, connected: state === "up", ssid: "" })
-                else eth.push({ name, connected: state === "up" })
             }
-            root._fallbackEthIfaces = eth
             root._fallbackWifiIfaces = wifi
             for (const iface of wifi) if (iface.connected) root._fetchFallbackSsid(iface.name)
         }
@@ -320,18 +343,29 @@ Item {
     }
 
     Process {
-        id: cleanupProc
+        id: updateProc
         command: ["ghostty", "-e", "fish", "-lc",
-            "clean-arch; echo; read -P 'Press enter to close...'"]
+            "paru -Syu; clean-arch; echo; read -P 'Press enter to close...'"]
         running: false
-        onExited: root._hideHost()
+        onExited: { root._hideHost(); root._fetchUpdates() }
     }
 
     Process {
-        id: updateProc
-        command: ["ghostty", "-e", "sh", "-c", "paru -Syu; echo; read -p 'Press enter to close...'"]
+        id: nethogProc
+        command: ["ghostty", "-e", "nethogs"]
         running: false
-        onExited: { root._hideHost(); root._fetchUpdates() }
+    }
+
+    Process {
+        id: btopProc
+        command: ["ghostty", "-e", "btop"]
+        running: false
+    }
+
+    Process {
+        id: nvtopProc
+        command: ["ghostty", "-e", "nvtop"]
+        running: false
     }
 
     Timer { interval: 3600000; repeat: true; running: true; onTriggered: root._fetchUpdates() }
@@ -345,314 +379,226 @@ Item {
     }
 
     // ── UI ────────────────────────────────────────────────────────────────────
-    Row {
-        id: mainRow
+    Column {
+        id: systemCol
         anchors.fill: parent
         spacing: 10
 
-        // ── Left column ───────────────────────────────────────────────────────
-        Column {
-            id: leftCol
-            width: root._systemColumnWidth * 2 + parent.spacing
+        // ── Row 1: 6 circles ─────────────────────────────────────────────────
+        // NOT USED — kept for potential future use, not displayed
+        Row {
+            id: circleRow
+            visible: false
+            width: parent.width
             spacing: 10
 
-            // ── Metric cards: CPU · RAM · GPU · VRAM ─────────────────────────
-            Grid {
-                width: parent.width
-                columns: 2
-                rowSpacing: 10
-                columnSpacing: 10
-
-                Repeater {
-                    model: [
-                        { label: "CPU",  pct: root.cpuPct,  val: root.cpuVal  },
-                        { label: "RAM",  pct: root.ramPct,  val: root.ramVal  },
-                        { label: "GPU",  pct: root.gpuPct,  val: root.gpuVal  },
-                        { label: "VRAM", pct: root.vramPct, val: root.vramVal },
-                    ]
-                    delegate: Rectangle {
-                        width: (parent.width - parent.columnSpacing) / parent.columns
-                        height: 52
-                        radius: 16
-                        color: root._panelColor
-
-                        Column {
-                            anchors { fill: parent; margins: 10 }
-                            spacing: 6
-
-                            Item {
-                                width: parent.width
-                                height: 14
-                                Text {
-                                    anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
-                                    text: modelData.label; font.family: Theme.fontFamily
-                                    font.pixelSize: 9; font.letterSpacing: 1.6; color: root._mutedText
-                                }
-                                Text {
-                                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                                    text: modelData.val; font.family: Theme.fontFamily
-                                    font.pixelSize: 10; font.bold: true; color: root._textColor
-                                    horizontalAlignment: Text.AlignRight
-                                }
-                            }
-
-                            Item {
-                                width: parent.width
-                                height: 12
-                                Rectangle {
-                                    width: parent.width; height: 8; anchors.verticalCenter: parent.verticalCenter
-                                    radius: 4; color: root._trackColor
-                                    Rectangle {
-                                        width: Math.max(8, parent.width * (Math.max(0, Math.min(100, modelData.pct)) / 100))
-                                        height: parent.height; topLeftRadius: 4; bottomLeftRadius: 4
-                                        topRightRadius: 2; bottomRightRadius: 2; color: root._accentColor
-                                    }
-                                }
-                                Rectangle {
-                                    width: 3; height: 14; radius: 1.5; anchors.verticalCenter: parent.verticalCenter
-                                    x: Math.max(0, Math.min(parent.width - width,
-                                        parent.width * (Math.max(0, Math.min(100, modelData.pct)) / 100) - width / 2 + 4))
-                                    color: Theme.text
-                                }
-                            }
-                        }
-                    }
+            // ── CPU ──────────────────────────────────────────────────────────
+            Item {
+                width: (parent.width - parent.spacing * 5) / 6; height: 52
+                Rectangle { width: 36; height: 36; radius: 18; anchors.centerIn: parent; color: Qt.rgba(Theme.surface.r, Theme.surface.g, Theme.surface.b, 0.5); visible: cpuMA.containsMouse }
+                Shape {
+                    anchors.centerIn: parent; width: 44; height: 44
+                    ShapePath { strokeColor: root._trackColor; strokeWidth: 4; fillColor: "transparent"; PathAngleArc { centerX: 22; centerY: 22; radiusX: 18; radiusY: 18; startAngle: 0; sweepAngle: 360 } }
+                    ShapePath { strokeColor: root._accentColor; strokeWidth: 4; fillColor: "transparent"; capStyle: ShapePath.RoundCap; PathAngleArc { centerX: 22; centerY: 22; radiusX: 18; radiusY: 18; startAngle: -90; sweepAngle: Math.max(0, 360 * root.cpuPct / 100) } }
                 }
+                Text { anchors.centerIn: parent; text: "CPU"; font.family: Theme.fontFamily; font.pixelSize: 9; font.letterSpacing: 1.6; color: root._mutedText }
+                MouseArea { id: cpuMA; anchors.fill: parent; hoverEnabled: true; onClicked: { root._hideHost(); btopProc.running = true } }
             }
 
-            // ── NET speed ─────────────────────────────────────────────────────
-            Row {
-                width: parent.width
-                spacing: 10
+            // ── RAM ──────────────────────────────────────────────────────────
+            Item {
+                width: (parent.width - parent.spacing * 5) / 6; height: 52
+                Rectangle { width: 36; height: 36; radius: 18; anchors.centerIn: parent; color: Qt.rgba(Theme.surface.r, Theme.surface.g, Theme.surface.b, 0.5); visible: ramMA.containsMouse }
+                Shape {
+                    anchors.centerIn: parent; width: 44; height: 44
+                    ShapePath { strokeColor: root._trackColor; strokeWidth: 4; fillColor: "transparent"; PathAngleArc { centerX: 22; centerY: 22; radiusX: 18; radiusY: 18; startAngle: 0; sweepAngle: 360 } }
+                    ShapePath { strokeColor: root._accentColor; strokeWidth: 4; fillColor: "transparent"; capStyle: ShapePath.RoundCap; PathAngleArc { centerX: 22; centerY: 22; radiusX: 18; radiusY: 18; startAngle: -90; sweepAngle: Math.max(0, 360 * root.ramPct / 100) } }
+                }
+                Text { anchors.centerIn: parent; text: "RAM"; font.family: Theme.fontFamily; font.pixelSize: 9; font.letterSpacing: 1.6; color: root._mutedText }
+                MouseArea { id: ramMA; anchors.fill: parent; hoverEnabled: true; onClicked: { root._hideHost(); btopProc.running = true } }
+            }
 
-                Rectangle {
-                    width: (parent.width - parent.spacing) / 2
-                    height: 48
+            // ── GPU ──────────────────────────────────────────────────────────
+            Item {
+                width: (parent.width - parent.spacing * 5) / 6; height: 52
+                Rectangle { width: 36; height: 36; radius: 18; anchors.centerIn: parent; color: Qt.rgba(Theme.surface.r, Theme.surface.g, Theme.surface.b, 0.5); visible: gpuMA.containsMouse }
+                Shape {
+                    anchors.centerIn: parent; width: 44; height: 44
+                    ShapePath { strokeColor: root._trackColor; strokeWidth: 4; fillColor: "transparent"; PathAngleArc { centerX: 22; centerY: 22; radiusX: 18; radiusY: 18; startAngle: 0; sweepAngle: 360 } }
+                    ShapePath { strokeColor: root._accentColor; strokeWidth: 4; fillColor: "transparent"; capStyle: ShapePath.RoundCap; PathAngleArc { centerX: 22; centerY: 22; radiusX: 18; radiusY: 18; startAngle: -90; sweepAngle: Math.max(0, 360 * root.gpuPct / 100) } }
+                }
+                Text { anchors.centerIn: parent; text: "GPU"; font.family: Theme.fontFamily; font.pixelSize: 9; font.letterSpacing: 1.6; color: root._mutedText }
+                MouseArea { id: gpuMA; anchors.fill: parent; hoverEnabled: true; onClicked: { root._hideHost(); nvtopProc.running = true } }
+            }
+
+            // ── VRAM ─────────────────────────────────────────────────────────
+            Item {
+                width: (parent.width - parent.spacing * 5) / 6; height: 52
+                Rectangle { width: 36; height: 36; radius: 18; anchors.centerIn: parent; color: Qt.rgba(Theme.surface.r, Theme.surface.g, Theme.surface.b, 0.5); visible: vramMA.containsMouse }
+                Shape {
+                    anchors.centerIn: parent; width: 44; height: 44
+                    ShapePath { strokeColor: root._trackColor; strokeWidth: 4; fillColor: "transparent"; PathAngleArc { centerX: 22; centerY: 22; radiusX: 18; radiusY: 18; startAngle: 0; sweepAngle: 360 } }
+                    ShapePath { strokeColor: root._accentColor; strokeWidth: 4; fillColor: "transparent"; capStyle: ShapePath.RoundCap; PathAngleArc { centerX: 22; centerY: 22; radiusX: 18; radiusY: 18; startAngle: -90; sweepAngle: Math.max(0, 360 * root.vramPct / 100) } }
+                }
+                Text { anchors.centerIn: parent; text: "VRM"; font.family: Theme.fontFamily; font.pixelSize: 9; font.letterSpacing: 1.6; color: root._mutedText }
+                MouseArea { id: vramMA; anchors.fill: parent; hoverEnabled: true; onClicked: { root._hideHost(); nvtopProc.running = true } }
+            }
+
+            // ── NDO ──────────────────────────────────────────────────────────
+            Item {
+                width: (parent.width - parent.spacing * 5) / 6; height: 52
+                Rectangle { width: 36; height: 36; radius: 18; anchors.centerIn: parent; color: Qt.rgba(Theme.surface.r, Theme.surface.g, Theme.surface.b, 0.5); visible: ndoMA.containsMouse }
+                Shape {
+                    anchors.centerIn: parent; width: 44; height: 44
+                    ShapePath { strokeColor: root._trackColor; strokeWidth: 4; fillColor: "transparent"; PathAngleArc { centerX: 22; centerY: 22; radiusX: 18; radiusY: 18; startAngle: 0; sweepAngle: 360 } }
+                    ShapePath { strokeColor: root._accentColor; strokeWidth: 4; fillColor: "transparent"; capStyle: ShapePath.RoundCap; PathAngleArc { centerX: 22; centerY: 22; radiusX: 18; radiusY: 18; startAngle: -90; sweepAngle: Math.min(1.0, root._netDownBps / (12.5 * 1024 * 1024)) * 360 } }
+                }
+                Text { anchors.centerIn: parent; text: "NDO"; font.family: Theme.fontFamily; font.pixelSize: 9; font.letterSpacing: 1.6; color: root._mutedText }
+                MouseArea { id: ndoMA; anchors.fill: parent; hoverEnabled: true; onClicked: { root._hideHost(); nethogProc.running = true } }
+            }
+
+            // ── NUP ──────────────────────────────────────────────────────────
+            Item {
+                width: (parent.width - parent.spacing * 5) / 6; height: 52
+                Rectangle { width: 36; height: 36; radius: 18; anchors.centerIn: parent; color: Qt.rgba(Theme.surface.r, Theme.surface.g, Theme.surface.b, 0.5); visible: nupMA.containsMouse }
+                Shape {
+                    anchors.centerIn: parent; width: 44; height: 44
+                    ShapePath { strokeColor: root._trackColor; strokeWidth: 4; fillColor: "transparent"; PathAngleArc { centerX: 22; centerY: 22; radiusX: 18; radiusY: 18; startAngle: 0; sweepAngle: 360 } }
+                    ShapePath { strokeColor: root._accentColor; strokeWidth: 4; fillColor: "transparent"; capStyle: ShapePath.RoundCap; PathAngleArc { centerX: 22; centerY: 22; radiusX: 18; radiusY: 18; startAngle: -90; sweepAngle: Math.min(1.0, root._netUpBps / (5 * 1024 * 1024)) * 360 } }
+                }
+                Text { anchors.centerIn: parent; text: "NUP"; font.family: Theme.fontFamily; font.pixelSize: 9; font.letterSpacing: 1.6; color: root._mutedText }
+                MouseArea { id: nupMA; anchors.fill: parent; hoverEnabled: true; onClicked: { root._hideHost(); nethogProc.running = true } }
+            }
+
+        }
+
+        // ── Row 2: WI-FI · VPN · UPDATE ──────────────────────────────────────
+        Item {
+            id: netRow
+            width: parent.width - 50
+            height: 36
+            anchors.horizontalCenter: parent.horizontalCenter
+
+            Repeater {
+                model: root._netTiles
+                delegate: Rectangle {
+                    required property var modelData
+                    required property int index
+                    property real tileW: (netRow.width - 20) / 3
+                    x: index === 0 ? 20 : (tileW + 10)
+                    y: 0
+                    width: tileW
+                    height: 36
                     radius: 16
-                    color: root._panelColor
+                    color: "transparent"
+                    border.width: 0
 
-                    Column {
-                        anchors { fill: parent; margins: 10 }
-                        spacing: 4
-
-                        Item {
-                            width: parent.width
-                            height: 14
+                    // single-line layout (e.g. VPN)
+                    Item {
+                        visible: modelData.singleLine || false
+                        anchors.fill: parent
+                        Row {
+                            anchors.centerIn: parent
+                            height: parent.height
+                            spacing: 6
                             Text {
-                                anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
-                                width: parent.width - netStatus.width - 4
-                                text: "NET"; font.family: Theme.fontFamily
-                                font.pixelSize: 9; font.letterSpacing: 1.6; color: root._mutedText
-                                elide: Text.ElideRight
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: modelData.icon; font.family: "Symbols Nerd Font"
+                                font.pixelSize: 14
+                                color: tileMA.containsMouse ? root._accentColor : root._mutedText
+                                Behavior on color { ColorAnimation { duration: 150 } }
                             }
                             Text {
-                                id: netStatus
-                                anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                                text: "I/O"
-                                font.family: Theme.fontFamily; font.pixelSize: 10; font.bold: true
-                                color: root._textColor; horizontalAlignment: Text.AlignRight
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: modelData.detail; font.family: Theme.fontFamily
+                                font.pixelSize: 9; font.bold: true; color: root._textColor
                             }
-                        }
-
-                        Text {
-                            width: parent.width
-                            text: root.netDown + "   " + root.netUp
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 9
-                            color: root._textColor
-                            elide: Text.ElideRight
                         }
                     }
-                }
 
-                Rectangle {
-                    width: (parent.width - parent.spacing) / 2
-                    height: 48
-                    radius: 16
-                    color: root._panelColor
-
+                    // two-line layout (e.g. WI-FI)
                     Column {
-                        anchors { fill: parent; margins: 10 }
+                        visible: !(modelData.singleLine || false)
+                        anchors { fill: parent; topMargin: 10; bottomMargin: 10; leftMargin: 14; rightMargin: 14 }
                         spacing: 4
 
                         Item {
-                            width: parent.width
-                            height: 14
+                            width: parent.width; height: 14
                             Text {
                                 anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
-                                width: parent.width - wifiStatus.width - 4
-                                text: root._wifiTile ? root._wifiTile.label : "WI-FI"
-                                font.family: Theme.fontFamily
+                                width: parent.width - tileStatus.width - 4
+                                text: modelData.label || ""; font.family: Theme.fontFamily
                                 font.pixelSize: 9; font.letterSpacing: 1.4; color: root._mutedText
                                 elide: Text.ElideRight
                             }
                             Text {
-                                id: wifiStatus
+                                id: tileStatus
                                 anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                                text: root._wifiTile && root._wifiTile.connected ? "ON" : "OFF"
+                                text: modelData.connected ? "ON" : "OFF"
                                 font.family: Theme.fontFamily; font.pixelSize: 10; font.bold: true
                                 color: root._textColor; horizontalAlignment: Text.AlignRight
                             }
                         }
 
                         Text {
-                            width: parent.width
-                            text: root._wifiTile ? root._wifiTile.detail : "Offline"
+                            width: parent.width; text: modelData.detail || ""
                             font.family: Theme.fontFamily; font.pixelSize: 9
                             color: root._textColor; elide: Text.ElideRight
                         }
                     }
-                }
-            }
 
-            // ── Network status: Ethernet · VPN ────────────────────────────────
-            Row {
-                width: parent.width
-                spacing: 10
-
-                Repeater {
-                    model: root._secondaryNetTiles
-                    delegate: Rectangle {
-                        required property var modelData
-                        width: (parent.width - parent.spacing) / 2
-                        height: 48
-                        radius: 16
-                        color: root._panelColor
-
-                        Column {
-                            anchors { fill: parent; margins: 10 }
-                            spacing: 4
-
-                            Item {
-                                width: parent.width
-                                height: 14
-                                Text {
-                                    anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
-                                    width: parent.width - tileStatus.width - 4
-                                    text: modelData.label; font.family: Theme.fontFamily
-                                    font.pixelSize: 9; font.letterSpacing: 1.4; color: root._mutedText
-                                    elide: Text.ElideRight
-                                }
-                                Text {
-                                    id: tileStatus
-                                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                                    text: modelData.connected ? "ON" : "OFF"
-                                    font.family: Theme.fontFamily; font.pixelSize: 10; font.bold: true
-                                    color: root._textColor; horizontalAlignment: Text.AlignRight
-                                }
-                            }
-
-                            Text {
-                                width: parent.width; text: modelData.detail
-                                font.family: Theme.fontFamily; font.pixelSize: 9
-                                color: root._textColor; elide: Text.ElideRight
-                            }
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            enabled: modelData.interactive
-                            cursorShape: modelData.interactive ? Qt.PointingHandCursor : Qt.ArrowCursor
-                            onClicked: root._toggleVpn()
+                    MouseArea {
+                        id: tileMA
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        enabled: modelData.interactive
+                        cursorShape: modelData.interactive ? Qt.PointingHandCursor : Qt.ArrowCursor
+                        onClicked: {
+                            if (modelData.key === "wifi") root._toggleWifi()
+                            else if (modelData.key === "vpn") root._toggleVpn()
                         }
                     }
                 }
             }
-        }
 
-        // ── Updates (full right column) ───────────────────────────────────────
-        Rectangle {
-            width: root._systemColumnWidth
-            height: leftCol.implicitHeight
-            radius: 16
-            color: root._panelColor
-
-            Item {
-                anchors { fill: parent; margins: 10 }
-
-                Item {
-                    id: updHeader
-                    anchors { left: parent.left; right: parent.right; top: parent.top }
-                    height: 14
-
-                    Text {
-                        anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
-                        text: "UPDATES"; font.family: Theme.fontFamily
-                        font.pixelSize: 9; font.letterSpacing: 1.6; color: root._mutedText
-                    }
-                    MouseArea {
-                        id: updCleanupMA
-                        anchors { right: updRefreshMA.left; rightMargin: 6; top: parent.top; bottom: parent.bottom }
-                        width: 18; hoverEnabled: true
-                        onClicked: { root._hideHost(); cleanupProc.running = true }
-                    }
-                    Text {
-                        anchors.right: updCleanupMA.right; anchors.verticalCenter: parent.verticalCenter
-                        text: "✦"; font.family: Theme.fontFamily; font.pixelSize: 12
-                        color: updCleanupMA.containsMouse ? root._textColor
-                            : Qt.rgba(root._textColor.r, root._textColor.g, root._textColor.b, 0.72)
-                    }
-                    MouseArea {
-                        id: updRefreshMA
-                        anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
-                        width: 18; hoverEnabled: true
-                        onClicked: root._fetchUpdates()
-                    }
-                    Text {
-                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                        text: "↻"; font.family: Theme.fontFamily; font.pixelSize: 12
-                        color: updRefreshMA.containsMouse ? root._textColor
-                            : Qt.rgba(root._textColor.r, root._textColor.g, root._textColor.b, 0.72)
-                    }
-                }
+            // ── UPDATE ───────────────────────────────────────────────────────
+            Rectangle {
+                id: updateTile
+                x: 2 * ((netRow.width - 20) / 3 + 10) - 20
+                y: 0
+                width: (netRow.width - 20) / 3
+                height: 36
+                radius: 16
+                color: "transparent"
 
                 Item {
-                    anchors { left: parent.left; right: parent.right; top: updHeader.bottom; topMargin: 6; bottom: updButton.top; bottomMargin: 6 }
-                    clip: true
-
-                    Text {
-                        anchors.centerIn: parent; visible: root._fetching
-                        text: "CHECKING…"; font.family: Theme.fontFamily; font.pixelSize: 9; color: root._mutedText
-                    }
-                    Text {
-                        anchors.centerIn: parent; visible: !root._fetching && root._packages.length === 0
-                        text: "UP TO DATE"; font.family: Theme.fontFamily; font.pixelSize: 9; color: root._mutedText
-                    }
-                    Column {
-                        width: parent.width; spacing: 2
-                        visible: !root._fetching && root._packages.length > 0
-                        Repeater {
-                            model: root._packages.slice(0, 20)
-                            Text {
-                                width: parent.width; text: root._packageName(modelData)
-                                font.family: Theme.fontFamily; font.pixelSize: 9
-                                color: root._textColor; elide: Text.ElideRight
-                            }
-                        }
-                    }
-                }
-
-                Rectangle {
-                    id: updButton
-                    anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-                    height: 20; radius: 10
-                    color: updMouse.containsMouse && root._packages.length > 0
-                        ? Qt.rgba(root._accentColor.r, root._accentColor.g, root._accentColor.b, 0.30)
-                        : root._packages.length > 0
-                            ? Qt.rgba(root._accentColor.r, root._accentColor.g, root._accentColor.b, 0.18)
-                            : Theme.surfaceRaised
-                    Text {
+                    anchors.fill: parent
+                    Row {
                         anchors.centerIn: parent
-                        text: root._packages.length > 0 ? (root._packages.length + " PKGS") : "✓"
-                        font.family: Theme.fontFamily; font.pixelSize: 8; font.letterSpacing: 1.2
-                        color: root._packages.length > 0 ? root._textColor
-                            : Qt.rgba(root._textColor.r, root._textColor.g, root._textColor.b, 0.65)
+                        height: parent.height
+                        spacing: 6
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: ""; font.family: "Symbols Nerd Font"
+                            font.pixelSize: 14
+                            color: circleMA.containsMouse ? root._accentColor : root._mutedText
+                            Behavior on color { ColorAnimation { duration: 150 } }
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: root._fetching ? "…" : (root._packages.length === 0 ? "CLEAN" : ("PKGs " + root._packages.length))
+                            font.family: Theme.fontFamily; font.pixelSize: 9; font.bold: true
+                            color: root._textColor
+                        }
                     }
-                    MouseArea {
-                        id: updMouse; anchors.fill: parent; hoverEnabled: true
-                        enabled: root._packages.length > 0
-                        onClicked: { root._hideHost(); updateProc.running = true }
-                    }
+                }
+                MouseArea {
+                    id: circleMA
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: { root._hideHost(); updateProc.running = true }
+                    onPressAndHold: root._fetchUpdates()
                 }
             }
         }
