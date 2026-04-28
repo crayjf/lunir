@@ -1,4 +1,4 @@
-# Garmin Connect — Available Data Fields!
+# Garmin Connect — Available Data Fields
 
 All fields verified against a live account via `garminconnect` + `garth`.
 Fetched with `client.login(tokenstore=...)` (no SSO hit after initial setup).
