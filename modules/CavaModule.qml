@@ -10,6 +10,7 @@ Item {
     readonly property color _textColor: Theme.color(moduleConfig, "textColor", "#F8F8F2FF")
     readonly property color _accentColor: Theme.color(moduleConfig, "accentColor", "#FF79C6FF")
     readonly property var _cfg: moduleConfig ? (moduleConfig.props || {}) : ({})
+    readonly property string _barShape: root._cfg.barShape || "clean"
 
     // Reactive: re-evaluates whenever Config.cava is reassigned (e.g. on file reload).
     // Per-widget color wins; global Config.cava.barColor is only a fallback.
@@ -115,6 +116,12 @@ Item {
     onVisibleChanged: root._syncVisualizer()
     on_BarCountChanged: root._syncVisualizer()
 
+    FontLoader {
+        id: hardstreetLoader
+        source: "file:///home/crayjf/.local/share/fonts/HARDSTREET.ttf"
+        onStatusChanged: { if (status === FontLoader.Ready) cavaCanvas.requestPaint() }
+    }
+
     Canvas {
         id: cavaCanvas
         anchors.fill: parent
@@ -127,8 +134,9 @@ Item {
             const count = root._barCount
             if (!data || data.length === 0) return
 
+            const isDistressed = root._barShape === "distressed"
             const barCell = width / count
-            const gap = Math.max(1, barCell * 0.16)
+            const gap = Math.max(1, barCell * (isDistressed ? 0.08 : 0.16))
             const bw = Math.max(1, barCell - gap)
             const maxH = Math.max(1, height)
             const dynamicPeak = Math.max(24, root._displayPeak)
@@ -187,7 +195,14 @@ Item {
                     ctx.fillStyle = "rgba(" + acR + "," + acG + "," + acB + "," + (0.08 + t * 0.28).toFixed(3) + ")"
                 }
 
-                ctx.fillRect(x, y, bw, bh)
+                if (!isDistressed) {
+                    ctx.fillRect(x, y, bw, bh)
+                } else {
+                    ctx.font = (bh * 1.35 | 0) + "px 'HARD STREET'"
+                    ctx.textBaseline = "alphabetic"
+                    ctx.textAlign = "center"
+                    ctx.fillText("I", x + bw * 0.5, y + bh)
+                }
             }
         }
     }

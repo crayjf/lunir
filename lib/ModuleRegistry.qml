@@ -31,7 +31,7 @@ Singleton {
         if (merged.type === "cava") {
             if (merged.height === undefined)
                 merged.height = Config.cava.height || 220
-            merged.props = Object.assign({}, Config.cava)
+            merged.props = Object.assign({}, Config.cava, module.props || {})
             if (merged.color !== undefined)
                 merged.props.barColor = merged.color
         }

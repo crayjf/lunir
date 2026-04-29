@@ -462,7 +462,12 @@ done`
             anchors.top: parent.top
             height: Math.max(0, Math.min(
                 upperContent.implicitHeight,
-                contentArea.height - wallpaperSection.height - garminSection.height - quoteSection.height - notificationsSection.height - (root._sectionGap * 4)
+                contentArea.height
+                    - wallpaperSection.height
+                    - (garminSlot.moduleItem ? garminSlot.moduleItem.preferredHeight : 280)
+                    - quoteSection.height
+                    - notificationsSection.height
+                    - (root._sectionGap * 4)
             ))
             clip: true
             ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
@@ -538,11 +543,13 @@ done`
                     id: garminSection
                     anchors.left: parent.left
                     anchors.right: parent.right
+                    anchors.top: notificationsSection.bottom
+                    anchors.topMargin: root._sectionGap
                     anchors.bottom: quoteSection.top
                     anchors.bottomMargin: root._sectionGap
-                    height: 160
 
                     ModuleSlot {
+                        id: garminSlot
                         anchors.fill: parent
                         moduleType: "garmin"
                     }

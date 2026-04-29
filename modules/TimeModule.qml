@@ -13,6 +13,7 @@ Item {
         ? Theme.positionalRainbowColor(moduleConfig, _rainbowAlpha)
         : Theme.parse(_colorStr, "#F8F8F2FF")
 
+    readonly property string _font: Theme.value(moduleConfig, "font", "Anurati")
     property string timeText: ""
 
     function _tick() {
@@ -37,10 +38,8 @@ Item {
         visible: !root._isRainbow
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
-        fontSizeMode: Text.Fit
-        minimumPixelSize: 10
-        font.family: "Anurati"
-        font.pixelSize: Math.max(10, Math.round(parent.height * 0.68))
+        font.family: root._font
+        font.pixelSize: Math.max(10, Math.round(parent.height * 1.2))
         color: root._textColor
     }
 
@@ -51,10 +50,8 @@ Item {
         text: root.timeText
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
-        fontSizeMode: Text.Fit
-        minimumPixelSize: 10
-        font.family: "Anurati"
-        font.pixelSize: Math.max(10, Math.round(parent.height * 0.68))
+        font.family: root._font
+        font.pixelSize: Math.max(10, Math.round(parent.height * 1.2))
         color: "white"
     }
 

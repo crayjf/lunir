@@ -1,8 +1,60 @@
 #!/usr/bin/env python3
-import sys
 import json
 import os
-from datetime import date
+import sys
+from datetime import date, timedelta
+
+
+def _safe_int(value, default=0):
+    try:
+        if value is None:
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _iso_days(end_day, count):
+    return [(end_day - timedelta(days=offset)).isoformat() for offset in range(count)]
+
+
+def _get_sleep_metrics(client, day):
+    try:
+        data = client.get_sleep_data(day) or {}
+    except Exception:
+        return None
+
+    sleep = data.get("dailySleepDTO") or {}
+    if not sleep:
+        return None
+
+    seconds = _safe_int(sleep.get("sleepTimeSeconds"))
+    score = _safe_int((((sleep.get("sleepScores") or {}).get("overall") or {}).get("value")))
+    if seconds <= 0 and score <= 0:
+        return None
+
+    return {
+        "date": day,
+        "sleepTimeSeconds": seconds,
+        "sleepScore": score,
+    }
+
+
+def _get_sleep_need(client, day):
+    try:
+        data = client.get_sleep_data(day) or {}
+    except Exception:
+        return 0
+    sleep = data.get("dailySleepDTO") or {}
+    return _safe_int(sleep.get("sleepNeed"))
+
+
+def _get_stats(client, day):
+    try:
+        return client.get_stats(day) or {}
+    except Exception:
+        return {}
+
 
 def main():
     if len(sys.argv) < 4:
@@ -20,9 +72,9 @@ def main():
     try:
         from garminconnect import (
             Garmin,
-            GarminConnectTooManyRequestsError,
             GarminConnectAuthenticationError,
             GarminConnectConnectionError,
+            GarminConnectTooManyRequestsError,
         )
     except ImportError:
         print(json.dumps({"error": "garminconnect not installed"}))
@@ -32,19 +84,110 @@ def main():
         client = Garmin(email=email, password=password)
         client.login(tokenstore=tokenstore)
 
-        today = date.today().isoformat()
-        stats = client.get_stats(today)
+        today_date = date.today()
+        today = today_date.isoformat()
+        last_7_days = _iso_days(today_date, 7)
+        stats_by_day = {}
 
-        steps = stats.get("totalSteps") or 0
-        goal = stats.get("dailyStepGoal") or 10000
-        distance_m = stats.get("totalDistanceMeters") or 0
-        kcal = stats.get("activeKilocalories") or 0
+        for day in last_7_days:
+            stats_by_day[day] = _get_stats(client, day)
+
+        stats = stats_by_day.get(today, {})
+
+        steps_7d = []
+        for day in sorted(last_7_days):
+            steps_7d.append({"date": day, "steps": _safe_int(stats_by_day.get(day, {}).get("totalSteps"))})
+
+        stress_7d = []
+        for day in last_7_days:
+            stress_value = stats_by_day.get(day, {}).get("averageStressLevel")
+            if stress_value is None:
+                continue
+            stress_7d.append({
+                "date": day,
+                "averageStressLevel": _safe_int(stress_value),
+            })
+
+        sleep_7d = []
+        for day in last_7_days:
+            sleep_metrics = _get_sleep_metrics(client, day)
+            if sleep_metrics:
+                sleep_7d.append(sleep_metrics)
+        sleep_7d.sort(key=lambda item: item["date"], reverse=True)
+        last_night = sleep_7d[0] if sleep_7d else None
+        sleep_need_today = _get_sleep_need(client, today)
+
+        vo2max = 0
+        try:
+            training_status = client.get_training_status(today) or {}
+            vo2max = _safe_int(
+                (((training_status.get("mostRecentVO2Max") or {}).get("generic") or {}).get("vo2MaxValue"))
+            )
+        except Exception:
+            pass
+
+        marathon_prediction = 0
+        try:
+            race_predictions = client.get_race_predictions() or {}
+            marathon_prediction = _safe_int(race_predictions.get("timeMarathon"))
+        except Exception:
+            pass
+
+        hrv_28d = []
+        hrv_status = ""
+        hrv_baseline_low = 0
+        hrv_baseline_high = 0
+        hrv_low_upper = 0
+        for day in sorted(_iso_days(today_date, 28)):
+            try:
+                hrv_data = client.get_hrv_data(day) or {}
+                summary = hrv_data.get("hrvSummary") or {}
+                avg = _safe_int(summary.get("lastNightAvg"))
+                if avg > 0:
+                    hrv_28d.append({"date": day, "hrv": avg})
+                if day == today:
+                    if summary.get("status"):
+                        hrv_status = summary["status"]
+                    baseline = summary.get("baseline") or {}
+                    hrv_baseline_low = _safe_int(baseline.get("balancedLow"))
+                    hrv_baseline_high = _safe_int(baseline.get("balancedUpper"))
+                    hrv_low_upper = _safe_int(baseline.get("lowUpper"))
+            except Exception:
+                pass
+
+        endurance_score = 0
+        endurance_classification = 0
+        endurance_26w = []
+        try:
+            start_26w = (today_date - timedelta(weeks=26)).isoformat()
+            endurance_data = client.get_endurance_score(start_26w, today) or {}
+            dto = endurance_data.get("enduranceScoreDTO") or {}
+            endurance_score = _safe_int(dto.get("overallScore"))
+            endurance_classification = _safe_int(dto.get("classification"))
+            for week_start in sorted((endurance_data.get("groupMap") or {}).keys()):
+                entry = endurance_data["groupMap"][week_start]
+                endurance_26w.append({"date": week_start, "score": _safe_int(entry.get("groupMax"))})
+        except Exception:
+            pass
 
         print(json.dumps({
-            "steps": int(steps),
-            "goal": int(goal),
-            "distance_km": round(distance_m / 1000, 2),
-            "active_kcal": int(kcal),
+            "hrv28Days": hrv_28d,
+            "hrvStatus": hrv_status,
+            "hrvBaselineLow": hrv_baseline_low,
+            "hrvBaselineHigh": hrv_baseline_high,
+            "hrvLowUpper": hrv_low_upper,
+            "steps7Days": steps_7d,
+            "restingHeartRate": _safe_int(stats.get("restingHeartRate")),
+            "averageStressLevelToday": _safe_int(stats.get("averageStressLevel")),
+            "averageStressLevel7Days": stress_7d,
+            "lastNightSleep": last_night,
+            "sleep7Days": sleep_7d,
+            "sleepNeedToday": sleep_need_today,
+            "vo2Max": vo2max,
+            "marathonPredictionSeconds": marathon_prediction,
+            "enduranceScore": endurance_score,
+            "enduranceClassification": endurance_classification,
+            "endurance26Weeks": endurance_26w,
         }))
 
     except GarminConnectTooManyRequestsError:
@@ -63,6 +206,7 @@ def main():
     except Exception as e:
         print(json.dumps({"error": str(e)}))
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

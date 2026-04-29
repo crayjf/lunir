@@ -12,6 +12,7 @@ Item {
     readonly property color _textColor: _isRainbow
         ? Theme.positionalRainbowColor(moduleConfig, _rainbowAlpha)
         : Theme.parse(_colorStr, "#F8F8F2FF")
+    readonly property string _font: Theme.value(moduleConfig, "font", "Anurati")
     readonly property var _days: ["SUNDAY","MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY"]
 
     property string dayText: ""
@@ -36,9 +37,7 @@ Item {
         visible: !root._isRainbow
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
-        fontSizeMode: Text.Fit
-        minimumPixelSize: 12
-        font.family: "Anurati"
+        font.family: root._font
         font.pixelSize: Math.max(12, Math.round(parent.height * 1.2))
         font.letterSpacing: 4
         color: root._textColor
@@ -51,9 +50,7 @@ Item {
         text: root.dayText
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
-        fontSizeMode: Text.Fit
-        minimumPixelSize: 12
-        font.family: "Anurati"
+        font.family: root._font
         font.pixelSize: Math.max(12, Math.round(parent.height * 1.2))
         font.letterSpacing: 4
         color: "white"

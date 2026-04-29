@@ -39,8 +39,11 @@ Item {
     // ── Updates state ─────────────────────────────────────────────────────────
     property var    _packages:     []
     property bool   _fetching:     false
+    property bool   _updating:     false
     property string _updateStatus: "UPDATES"
     readonly property string _cachePath: Quickshell.dataPath("updates-cache.json")
+    readonly property string _updateDonePath: Quickshell.dataPath("update-complete")
+    property string _updateToken: ""
 
     // ── Network state ─────────────────────────────────────────────────────────
     readonly property string _protonBinDir: (Quickshell.env("HOME") || "") + "/.local/bin"
@@ -84,6 +87,9 @@ Item {
         if (n >= 1e6) return Math.round(n / 1e6) + " MB"
         if (n >= 1e3) return Math.round(n / 1e3) + " KB"
         return Math.round(n) + " B"
+    }
+    function _shQuote(value) {
+        return "'" + String(value || "").replace(/'/g, "'\"'\"'") + "'"
     }
     function _fmtSpeed(n) { return _fmtBytes(n) + "/S" }
 
@@ -155,6 +161,14 @@ Item {
     function _fetchUpdates() {
         if (_fetching) return
         _fetching = true; _updateStatus = "CHECKING…"; checkProc.running = true
+    }
+    function _startUpdate() {
+        if (root._updating) return
+        root._updating = true
+        root._updateToken = Date.now().toString() + "-" + Math.random().toString(36).slice(2)
+        updateWatchTimer.restart()
+        updateProc.running = true
+        root._hideHost()
     }
 
     // ── Perf tick ─────────────────────────────────────────────────────────────
@@ -356,6 +370,23 @@ Item {
     }
 
     Process {
+        id: readUpdateDoneProc
+        command: ["cat", root._updateDonePath]
+        running: false
+        stdout: StdioCollector { id: readUpdateDoneStdio }
+        onExited: (code) => {
+            if (code !== 0) return
+            if (readUpdateDoneStdio.text.trim() !== root._updateToken) return
+            updateWatchTimer.stop()
+            root._updating = false
+            root._packages = []
+            saveCacheProc.content = "[]"
+            saveCacheProc.running = true
+            root._fetchUpdates()
+        }
+    }
+
+    Process {
         id: checkProc
         command: ["checkupdates"]
         running: false
@@ -371,10 +402,24 @@ Item {
 
     Process {
         id: updateProc
+        property string script: {
+            const donePath = root._shQuote(root._updateDonePath)
+            const token = root._shQuote(root._updateToken)
+            return "mkdir -p (dirname " + donePath + "); " +
+                "paru -Syu; " +
+                "set update_status $status; " +
+                "clean-arch; " +
+                "printf %s " + token + " > " + donePath + "; " +
+                "echo; read -P 'Press enter to close...'; " +
+                "exit $update_status"
+        }
         command: ["ghostty", "-e", "fish", "-lc",
-            "paru -Syu; clean-arch; echo; read -P 'Press enter to close...'"]
+            updateProc.script]
         running: false
-        onExited: { root._hideHost(); root._fetchUpdates() }
+        onExited: {
+            if (!root._updating || readUpdateDoneProc.running) return
+            readUpdateDoneProc.running = true
+        }
     }
 
     Process {
@@ -396,6 +441,16 @@ Item {
     }
 
     Timer { interval: 3600000; repeat: true; running: true; onTriggered: root._fetchUpdates() }
+    Timer {
+        id: updateWatchTimer
+        interval: 2000
+        repeat: true
+        running: false
+        onTriggered: {
+            if (!root._updating || readUpdateDoneProc.running) return
+            readUpdateDoneProc.running = true
+        }
+    }
 
     Component.onCompleted: {
         root._enableWifiScanning()
@@ -613,7 +668,7 @@ Item {
                         }
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
-                            text: root._fetching ? "…" : (root._packages.length === 0 ? "CLEAN" : ("PKGs " + root._packages.length))
+                            text: (root._fetching || root._updating) ? "…" : (root._packages.length === 0 ? "CLEAN" : ("PKGs " + root._packages.length))
                             font.family: Theme.fontFamily; font.pixelSize: 9; font.bold: true
                             color: root._textColor
                         }
@@ -624,7 +679,7 @@ Item {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: { root._hideHost(); updateProc.running = true }
+                    onClicked: root._startUpdate()
                     onPressAndHold: root._fetchUpdates()
                 }
             }
