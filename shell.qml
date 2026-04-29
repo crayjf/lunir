@@ -1,4 +1,5 @@
 import QtQuick 2.15
+import QtQml.Models 2.15
 import Quickshell
 import Quickshell.Io
 import Quickshell.Services.Pipewire
@@ -11,6 +12,9 @@ import "./modules"
 // IPC via:  qs ipc call lunir <function> [arg]
 //
 //   toggle_control_center        — show/hide the control center
+//   toggle_desktop_edit_mode     — show/hide interactive desktop widget editor
+//   show_desktop_edit_mode       — enable interactive desktop widget editor
+//   hide_desktop_edit_mode       — disable interactive desktop widget editor
 //   toggle <controller-id>       — toggle a registered surface
 //   show   <controller-id>       — show a registered surface
 //   hide   <controller-id>       — hide a registered surface
@@ -36,11 +40,12 @@ ShellRoot {
             screen: modelData
         }
     }
-    Variants {
-        model: Quickshell.screens
-        DesktopWidgets {
+    Instantiator {
+        model: ModuleRegistry.desktopModules
+        delegate: DesktopEditWidgetWindow {
             required property var modelData
-            screen: modelData
+            screen: Quickshell.screens[0]
+            moduleConfig: modelData
         }
     }
     VolumeOSD {}
@@ -99,6 +104,18 @@ ShellRoot {
 
         function toggle_control_center() {
             ModuleControllers.toggle("control-center");
+        }
+
+        function toggle_desktop_edit_mode() {
+            DesktopState.editMode = !DesktopState.editMode;
+        }
+
+        function show_desktop_edit_mode() {
+            DesktopState.editMode = true;
+        }
+
+        function hide_desktop_edit_mode() {
+            DesktopState.editMode = false;
         }
 
         function toggle(moduleId: string) {

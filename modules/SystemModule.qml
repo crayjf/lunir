@@ -50,6 +50,7 @@ Item {
     property bool   _wifiBusy:     false
     property bool   _vpnConnected: false
     property string _vpnServer:    ""
+    property string _vpnError:     ""
     property bool   _vpnBusy:      false
     property bool   _autoConnect:  true
 
@@ -68,7 +69,9 @@ Item {
     }
     readonly property var _netTiles: [
         { key: "vpn",  icon: "", connected: root._vpnConnected,
-          detail: root._vpnBusy ? "Working…" : (root._vpnConnected ? (root._vpnServer.replace("VPN","").replace(/#.*/,"").trim() || "Connected") : "Off"),
+          detail: root._vpnBusy ? "Working…" : (root._vpnConnected
+              ? (root._vpnServer.replace("VPN","").replace(/#.*/,"").trim() || "Connected")
+              : (root._vpnError || "Off")),
           interactive: true, singleLine: true },
         { key: "wifi", icon: "", connected: root.wifiConnected,
           detail: root._wifiBusy ? "Working…" : (root.wifiConnected ? (root.wifiSsid || "Connected") : "Off"),
@@ -132,9 +135,17 @@ Item {
     }
     function _toggleVpn() {
         if (root._vpnBusy) return
+        root._vpnError = ""
         root._vpnBusy = true; vpnBusyTimeout.restart()
         if (root._vpnConnected) vpnDiscProc.running = true
         else vpnConnProc.running = true
+    }
+    function _vpnErrorText(output) {
+        const text = String(output || "").replace(/\s+/g, " ").trim()
+        if (!text) return "Failed"
+        if (/Authentication required/i.test(text) || /sign in/i.test(text)) return "Sign in required"
+        if (/network manager/i.test(text) && /not running|unavailable/i.test(text)) return "NetworkManager unavailable"
+        return text
     }
     function _hideHost() { if (root.hostControllerId) ModuleControllers.hide(root.hostControllerId) }
     function _packageName(entry) {
@@ -267,7 +278,9 @@ Item {
     Process {
         id: vpnCheckProc
         command: ["bash", "-lc",
-            "nmcli -t -f NAME,DEVICE connection show --active | grep ':proton0$' | cut -d: -f1"]
+            "nmcli -t -f NAME,TYPE,DEVICE connection show --active | " +
+            "awk -F: 'BEGIN{IGNORECASE=1} " +
+            "($2 ~ /^(vpn|wireguard)$/ || $1 ~ /proton/ || $3 ~ /^(proton|pvpn|wg|tun)/) { print $1; exit }'"]
         running: false
         stdout: StdioCollector { id: vpnCheckStdio }
         onExited: {
@@ -275,6 +288,7 @@ Item {
             const connected = out.length > 0
             if (connected !== root._vpnConnected) root._vpnConnected = connected
             if (out !== root._vpnServer) root._vpnServer = out
+            if (connected && root._vpnError) root._vpnError = ""
             if (root._autoConnect && !root._vpnConnected) {
                 root._autoConnect = false; root._vpnBusy = true
                 vpnBusyTimeout.restart(); vpnConnProc.running = true
@@ -287,9 +301,15 @@ Item {
         command: ["bash", "-lc",
             "export XDG_RUNTIME_DIR=/run/user/$(id -u); " +
             "export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus; " +
-            "\"" + root._protonBinDir + "/protonvpn-connect\""]
+            "protonvpn connect 2>&1"]
+        stdout: StdioCollector { id: vpnConnStdio }
+        onExited: (code) => {
+            vpnBusyTimeout.stop()
+            root._vpnBusy = false
+            if (code !== 0) root._vpnError = root._vpnErrorText(vpnConnStdio.text)
+            vpnCheckProc.running = true
+        }
         running: false
-        onExited: { vpnBusyTimeout.stop(); root._vpnBusy = false; vpnCheckProc.running = true }
     }
 
     Process {
@@ -297,9 +317,16 @@ Item {
         command: ["bash", "-lc",
             "export XDG_RUNTIME_DIR=/run/user/$(id -u); " +
             "export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus; " +
-            "\"" + root._protonBinDir + "/protonvpn-disconnect\""]
+            "protonvpn disconnect 2>&1"]
         running: false
-        onExited: { vpnBusyTimeout.stop(); root._vpnBusy = false; vpnCheckProc.running = true }
+        stdout: StdioCollector { id: vpnDiscStdio }
+        onExited: (code) => {
+            vpnBusyTimeout.stop()
+            root._vpnBusy = false
+            if (code !== 0) root._vpnError = root._vpnErrorText(vpnDiscStdio.text)
+            else root._vpnError = ""
+            vpnCheckProc.running = true
+        }
     }
 
     Timer {

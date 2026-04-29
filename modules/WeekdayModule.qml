@@ -39,7 +39,7 @@ Item {
         fontSizeMode: Text.Fit
         minimumPixelSize: 12
         font.family: "Anurati"
-        font.pixelSize: Math.max(12, Math.round(parent.height * 0.72))
+        font.pixelSize: Math.max(12, Math.round(parent.height * 1.2))
         font.letterSpacing: 4
         color: root._textColor
     }
@@ -54,7 +54,7 @@ Item {
         fontSizeMode: Text.Fit
         minimumPixelSize: 12
         font.family: "Anurati"
-        font.pixelSize: Math.max(12, Math.round(parent.height * 0.72))
+        font.pixelSize: Math.max(12, Math.round(parent.height * 1.2))
         font.letterSpacing: 4
         color: "white"
     }

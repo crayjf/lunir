@@ -2,6 +2,7 @@ singleton Config 1.0 Config.qml
 singleton Theme 1.0 Theme.qml
 singleton ModuleRegistry 1.0 ModuleRegistry.qml
 singleton ModuleControllers 1.0 ModuleControllers.qml
+singleton DesktopState 1.0 DesktopState.qml
 singleton NotificationService 1.0 NotificationService.qml
 singleton SelectedDay 1.0 SelectedDay.qml
 RainbowBorder 1.0 RainbowBorder.qml

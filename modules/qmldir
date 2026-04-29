@@ -1,12 +1,14 @@
 ControlCenter 1.0 ControlCenter.qml
 WidgetItem 1.0 WidgetItem.qml
 WallpaperBackground 1.0 WallpaperBackground.qml
-DesktopWidgets 1.0 DesktopWidgets.qml
+DesktopWidgetLayer 1.0 DesktopWidgetLayer.qml
+DesktopEditWidgetWindow 1.0 DesktopEditWidgetWindow.qml
 VolumeOSD 1.0 VolumeOSD.qml
 NotificationOSD 1.0 NotificationOSD.qml
 ClockModule 1.0 ClockModule.qml
 WeekdayModule 1.0 WeekdayModule.qml
-DateModule 1.0 DateModule.qml
+DateDayModule 1.0 DateDayModule.qml
+DateMonthModule 1.0 DateMonthModule.qml
 TimeModule 1.0 TimeModule.qml
 ProgressModule 1.0 ProgressModule.qml
 QuoteModule 1.0 QuoteModule.qml

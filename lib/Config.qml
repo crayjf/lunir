@@ -31,21 +31,6 @@ Singleton {
         fontFamily: "Inter",
     })
 
-    readonly property var _themeComments: ({
-        background: "base background color used behind major surfaces",
-        surface: "main panel/card fill color",
-
-        border: "normal outline color for panels and popups, or #rainbow for a hue border",
-        text: "primary readable text color",
-        textMuted: "secondary labels and less prominent text",
-        accent: "primary highlight color for progress, selected, and active states",
-        track: "inactive progress bars, sliders, and off states",
-        radiusSmall: "small control/card corner radius",
-        radiusLarge: "large surface corner radius",
-        borderWidth: "default border width in pixels",
-        fontFamily: "default UI font family",
-    })
-
     readonly property var _defaultWallpaper: ({
         current: "",
         folder: "~/Pictures/Wallpaper",
@@ -88,21 +73,28 @@ Singleton {
             widgetBackground: "#00000000",
         },
         {
-            id: "desktop-date",
-            type: "date",
+            id: "desktop-dateday",
+            type: "dateday",
             x: 940,
             y: 135,
-            width: 660,
             height: 40,
             widgetBackground: "#00000000",
         },
         {
-            id: "desktop-time",
-            type: "time",
+            id: "desktop-datemonth",
+            type: "datemonth",
+            x: 1000,
+            y: 135,
+            height: 40,
+            widgetBackground: "#00000000",
+        },
+        {
+            id: "desktop-clock",
+            type: "clock",
             x: 940,
             y: 180,
-            width: 660,
-            height: 55,
+            width: 200,
+            height: 200,
             widgetBackground: "#00000000",
         },
         {
@@ -233,7 +225,7 @@ Singleton {
         const hasSplitModules = modules.some(function(module) {
             return module && typeof module.id === "string" && (
                 module.id.indexOf("desktop-clock-") === 0 ||
-                module.id.indexOf("desktop-") === 0 && ["desktop-weekday", "desktop-date", "desktop-time", "desktop-progress"].indexOf(module.id) >= 0
+                module.id.indexOf("desktop-") === 0 && ["desktop-weekday", "desktop-dateday", "desktop-datemonth", "desktop-clock", "desktop-progress"].indexOf(module.id) >= 0
             )
         })
 
@@ -258,22 +250,30 @@ Singleton {
                     color: color,
                 },
                 {
-                    id: "desktop-date",
-                    type: "date",
+                    id: "desktop-dateday",
+                    type: "dateday",
                     x: x,
                     y: y + Math.max(90, Math.round(height * 0.42)),
-                    width: width,
                     height: 36,
                     widgetBackground: background,
                     color: color,
                 },
                 {
-                    id: "desktop-time",
-                    type: "time",
+                    id: "desktop-datemonth",
+                    type: "datemonth",
+                    x: x + 60,
+                    y: y + Math.max(90, Math.round(height * 0.42)),
+                    height: 36,
+                    widgetBackground: background,
+                    color: color,
+                },
+                {
+                    id: "desktop-clock",
+                    type: "clock",
                     x: x,
                     y: y + Math.max(126, Math.round(height * 0.42) + 36),
-                    width: width,
-                    height: 44,
+                    width: 200,
+                    height: 200,
                     widgetBackground: background,
                     color: color,
                 },
@@ -298,17 +298,21 @@ Singleton {
             if (module.id === "desktop-clock-weekday") {
                 modules[i] = Object.assign({}, module, { id: "desktop-weekday", type: "weekday" })
             } else if (module.id === "desktop-clock-date") {
-                modules[i] = Object.assign({}, module, { id: "desktop-date", type: "date" })
-            } else if (module.id === "desktop-clock-time") {
-                modules[i] = Object.assign({}, module, { id: "desktop-time", type: "time" })
+                modules[i] = Object.assign({}, module, { id: "desktop-dateday", type: "dateday" })
+            } else if (module.id === "desktop-clock-time" || (module.id === "desktop-time" && module.type === "time")) {
+                modules[i] = Object.assign({}, module, { id: "desktop-clock", type: "clock", width: 200, height: 200 })
             } else if (module.id === "desktop-clock-progress") {
                 modules[i] = Object.assign({}, module, { id: "desktop-progress", type: "progress" })
             } else if (module.type === "clockWeekday") {
                 modules[i] = Object.assign({}, module, { type: "weekday" })
             } else if (module.type === "clockDate") {
-                modules[i] = Object.assign({}, module, { type: "date" })
+                modules[i] = Object.assign({}, module, { type: "dateday" })
+            } else if (module.id === "desktop-date" || module.type === "date") {
+                modules[i] = Object.assign({}, module, { id: "desktop-dateday", type: "dateday" })
+                if (!modules.some(function(m) { return m && m.id === "desktop-datemonth" }))
+                    modules.splice(i + 1, 0, { id: "desktop-datemonth", type: "datemonth", x: (module.x ?? 0) + 60, y: module.y ?? 0, height: module.height ?? 40, widgetBackground: module.widgetBackground ?? "#00000000", color: module.color })
             } else if (module.type === "clockTime") {
-                modules[i] = Object.assign({}, module, { type: "time" })
+                modules[i] = Object.assign({}, module, { type: "clock" })
             } else if (module.type === "clockProgress") {
                 modules[i] = Object.assign({}, module, { type: "progress" })
             }
@@ -462,12 +466,6 @@ Singleton {
         }).join("\n")
     }
 
-    function _themeLine(key, isLast) {
-        const value = JSON.stringify(theme[key])
-        const comma = isLast ? "" : ","
-        return "    " + JSON.stringify(key) + ": " + value + comma + " // " + _themeComments[key]
-    }
-
     function _appendSection(lines, key, value, isLast) {
         const indented = _indent(JSON.stringify(value, null, 2), 2)
         lines.push("  " + JSON.stringify(key) + ": " + indented.substring(2) + (isLast ? "" : ","))
@@ -481,8 +479,11 @@ Singleton {
         ]
 
         const themeKeys = Object.keys(_defaultTheme)
-        for (let i = 0; i < themeKeys.length; i++)
-            lines.push(_themeLine(themeKeys[i], i === themeKeys.length - 1))
+        for (let i = 0; i < themeKeys.length; i++) {
+            const key = themeKeys[i]
+            const comma = i === themeKeys.length - 1 ? "" : ","
+            lines.push("    " + JSON.stringify(key) + ": " + JSON.stringify(theme[key]) + comma)
+        }
         lines.push("  }")
 
         const sections = ["wallpaper", "weather", "calendar", "launcher", "desktopModules", "garmin", "cava", "controlCenter"].filter(function(key) {

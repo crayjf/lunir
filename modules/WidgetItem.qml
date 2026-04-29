@@ -12,6 +12,7 @@ Item {
     property int moveModifiers: Qt.NoModifier
     property string gridControllerId: "desktop-grid-overlay"
     property string hostControllerId: ""
+    property bool interactive: true
 
     function _applyLoaderProps() {
         const item = moduleLoader.item
@@ -19,12 +20,19 @@ Item {
         item.moduleConfig = win.moduleConfig
         if (item.hostControllerId !== undefined)
             item.hostControllerId = win.hostControllerId
+        if (item.autoSize === true)
+            Qt.callLater(win._updateAutoWidth)
     }
 
     readonly property int _minW: moduleConfig ? (moduleConfig.minWidth  ?? 150) : 150
     readonly property int _minH: moduleConfig ? (moduleConfig.minHeight ?? 40)  : 40
     readonly property bool _spanMonitorWidth: !!(moduleConfig && moduleConfig.spanMonitorWidth)
     readonly property bool _stickToBottom: !!(moduleConfig && moduleConfig.stickToBottom)
+    readonly property bool _autoSize: {
+        if (moduleLoader.status !== Loader.Ready) return false
+        const item = moduleLoader.item
+        return item !== null && item.autoSize === true
+    }
     readonly property real _maxHeightRatio: moduleConfig && moduleConfig.maxHeightRatio !== undefined
         ? Number(moduleConfig.maxHeightRatio)
         : 0
@@ -46,12 +54,25 @@ Item {
         return Infinity
     }
 
+    function _updateAutoWidth() {
+        if (!_autoSize || _dragging || _resizing) return
+        const item = moduleLoader.item
+        if (!item || item.implicitWidth <= 0) return
+        _w = item.implicitWidth
+        _clampToParent()
+    }
+
     function _syncFromConfig() {
         if (!moduleConfig || _dragging || _resizing) return
         const maxH = _maxAllowedHeight()
-        _w = _spanMonitorWidth && parent
-            ? parent.width
-            : (moduleConfig.width ?? _minW)
+        if (_autoSize) {
+            const item = moduleLoader.item
+            _w = (item && item.implicitWidth > 0) ? item.implicitWidth : _minW
+        } else {
+            _w = _spanMonitorWidth && parent
+                ? parent.width
+                : (moduleConfig.width ?? _minW)
+        }
         _h = Math.min(moduleConfig.height ?? _minH, maxH)
         _x = _spanMonitorWidth ? 0 : (moduleConfig.x ?? 0)
         _y = _stickToBottom && parent
@@ -61,8 +82,9 @@ Item {
 
     function _clampToParent() {
         if (!parent) return
+        const effectiveMinW = _autoSize ? 1 : _minW
         if (!_spanMonitorWidth)
-            _w = Math.min(parent.width, Math.max(_minW, _w))
+            _w = Math.min(parent.width, Math.max(effectiveMinW, _w))
         _h = Math.min(_maxAllowedHeight(), Math.min(parent.height, Math.max(_minH, _h)))
         _x = _spanMonitorWidth ? 0 : Math.max(0, Math.min(_x, parent.width - _w))
         _y = _stickToBottom
@@ -77,7 +99,8 @@ Item {
         const updates = { height: _h }
         if (!_spanMonitorWidth) {
             updates.x = _x
-            updates.width = _w
+            if (!_autoSize)
+                updates.width = _w
         }
         if (!_stickToBottom)
             updates.y = _y
@@ -105,6 +128,12 @@ Item {
     on_MaxHeightRatioChanged: {
         _syncFromConfig()
         _clampToParent()
+    }
+
+    Connections {
+        target: moduleLoader.item
+        enabled: win._autoSize
+        function onImplicitWidthChanged() { win._updateAutoWidth() }
     }
 
     Connections {
@@ -156,6 +185,7 @@ Item {
         id: interactionArea
         anchors.fill: parent
         z: 100
+        enabled: win.interactive
         acceptedButtons: Qt.LeftButton | Qt.RightButton
         hoverEnabled: true
         preventStealing: true

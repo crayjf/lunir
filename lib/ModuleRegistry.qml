@@ -6,7 +6,8 @@ Singleton {
     readonly property var _moduleFiles: ({
         clock: "ClockModule.qml",
         weekday: "WeekdayModule.qml",
-        date: "DateModule.qml",
+        dateday: "DateDayModule.qml",
+        datemonth: "DateMonthModule.qml",
         time: "TimeModule.qml",
         progress: "ProgressModule.qml",
         calendar: "CalendarModule.qml",

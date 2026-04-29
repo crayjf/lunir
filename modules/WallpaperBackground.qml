@@ -26,6 +26,52 @@ PanelWindow {
         cache: false
     }
 
+    Canvas {
+        id: desktopGridCanvas
+        anchors.fill: parent
+        z: 1
+        visible: DesktopState.editMode && win.screen === Quickshell.screens[0]
+        enabled: false
+
+        onVisibleChanged: { if (visible) requestPaint() }
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
+
+        onPaint: {
+            const ctx = getContext("2d")
+            ctx.clearRect(0, 0, width, height)
+
+            const G = 20
+            const cx = width / 2
+            const cy = height / 2
+
+            const r = Theme.text.r
+            const g = Theme.text.g
+            const b = Theme.text.b
+            ctx.strokeStyle = "rgba(" + Math.round(r * 255) + "," + Math.round(g * 255) + "," + Math.round(b * 255) + ",0.07)"
+            ctx.lineWidth = 0.5
+            ctx.beginPath()
+            for (let x = 0; x <= width; x += G) { ctx.moveTo(x, 0); ctx.lineTo(x, height) }
+            for (let y = 0; y <= height; y += G) { ctx.moveTo(0, y); ctx.lineTo(width, y) }
+            ctx.stroke()
+
+            ctx.strokeStyle = "rgba(" + Math.round(r * 255) + "," + Math.round(g * 255) + "," + Math.round(b * 255) + ",0.28)"
+            ctx.lineWidth = 1.5
+            ctx.beginPath()
+            ctx.moveTo(cx, 0); ctx.lineTo(cx, height)
+            ctx.moveTo(0, cy); ctx.lineTo(width, cy)
+            ctx.stroke()
+        }
+    }
+
+    DesktopWidgetLayer {
+        anchors.fill: parent
+        z: 2
+        screen: win.screen
+        interactive: false
+        visible: !DesktopState.editMode
+    }
+
     function expandPath(p) { return p }
 
     function fitMode(fit) {
