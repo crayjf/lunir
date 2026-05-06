@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Services.Mpris
 import "../lib"
+import "../lib/ShellUtils.js" as ShellUtils
 
 Item {
     id: root
@@ -10,7 +11,9 @@ Item {
     readonly property color _textColor: Theme.color(moduleConfig, "textColor", "#F8F8F2FF")
     readonly property color _accentColor: Theme.color(moduleConfig, "accentColor", "#FF79C6FF")
     readonly property var _cfg: moduleConfig ? (moduleConfig.props || {}) : ({})
-    readonly property string _barShape: root._cfg.barShape || "clean"
+    readonly property string _barShape: moduleConfig && moduleConfig.barShape !== undefined && moduleConfig.barShape !== null && moduleConfig.barShape !== ""
+        ? moduleConfig.barShape
+        : "clean"
 
     // Reactive: re-evaluates whenever Config.cava is reassigned (e.g. on file reload).
     // Per-widget color wins; global Config.cava.barColor is only a fallback.
@@ -60,13 +63,11 @@ Item {
 
     Process {
         id: writeCfgProc
-        command: ["sh", "-c",
-            "mkdir -p \"$(dirname \"$1\")\" && printf '%s' \"$2\" > \"$1\"",
-            "sh", root._cavaCfgPath,
+        command: ShellUtils.writeFileCommand(root._cavaCfgPath,
             "[general]\nbars = " + root._barCount + "\nframerate = 60\nautosens = 1\nsensitivity = 100\n\n" +
             "[input]\nmethod = pulse\nsource = auto\n\n" +
             "[output]\nmethod = raw\nraw_target = /dev/stdout\n" +
-            "data_format = ascii\nbar_delimiter = 32\nframe_delimiter = 10\nbit_format = 8\n"]
+            "data_format = ascii\nbar_delimiter = 32\nframe_delimiter = 10\nbit_format = 8\n")
         running: false
         onExited: (code) => {
             if (code !== 0) {
@@ -135,12 +136,33 @@ Item {
             if (!data || data.length === 0) return
 
             const isDistressed = root._barShape === "distressed"
+            const isRounded = root._barShape === "rounded"
             const barCell = width / count
             const gap = Math.max(1, barCell * (isDistressed ? 0.08 : 0.16))
             const bw = Math.max(1, barCell - gap)
             const maxH = Math.max(1, height)
             const dynamicPeak = Math.max(24, root._displayPeak)
             const scale = maxH / dynamicPeak
+
+            function fillRoundedRect(x, y, w, h, radius) {
+                const r = Math.max(0, Math.min(radius, w * 0.5, h * 0.5))
+                if (r <= 0) {
+                    ctx.fillRect(x, y, w, h)
+                    return
+                }
+                ctx.beginPath()
+                ctx.moveTo(x + r, y)
+                ctx.lineTo(x + w - r, y)
+                ctx.arcTo(x + w, y, x + w, y + r, r)
+                ctx.lineTo(x + w, y + h - r)
+                ctx.arcTo(x + w, y + h, x + w - r, y + h, r)
+                ctx.lineTo(x + r, y + h)
+                ctx.arcTo(x, y + h, x, y + h - r, r)
+                ctx.lineTo(x, y + r)
+                ctx.arcTo(x, y, x + r, y, r)
+                ctx.closePath()
+                ctx.fill()
+            }
 
             const cfgHex = root._barColorStr
             const isRainbow = root._isRainbow
@@ -195,7 +217,10 @@ Item {
                     ctx.fillStyle = "rgba(" + acR + "," + acG + "," + acB + "," + (0.08 + t * 0.28).toFixed(3) + ")"
                 }
 
-                if (!isDistressed) {
+                if (isRounded) {
+                    const radius = Math.max(1, Math.min(bw * 0.48, bh * 0.22))
+                    fillRoundedRect(x, y, bw, bh, radius)
+                } else if (!isDistressed) {
                     ctx.fillRect(x, y, bw, bh)
                 } else {
                     ctx.font = (bh * 1.35 | 0) + "px 'HARD STREET'"

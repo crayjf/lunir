@@ -1,5 +1,4 @@
 import QtQuick 2.15
-import Quickshell.Io
 import "../lib"
 
 Item {
@@ -28,292 +27,33 @@ Item {
     readonly property color _iconBadgeColor: Theme.alpha(_accentColor, 0.16)
     readonly property string tempUnit: units === "metric" ? "°C" : "°F"
     readonly property bool _compact: width < 360
-
-    readonly property var _DAYS: ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
+    readonly property real _columnWidth: width / 5
+    readonly property int _contentOffsetX: 15
     readonly property string _EMPTY_ICON: "○"
-    readonly property var _DAY_PARTS: [
-        { label: "MORN", hour: 9 },
-        { label: "NOON", hour: 12 },
-        { label: "AFTN", hour: 15 },
-        { label: "EVE", hour: 18 },
-        { label: "NIGHT", hour: 21 }
-    ]
-    readonly property var _OWM_ICONS: ({
-        "01d": "☀",
-        "01n": "☾",
-        "02d": "⛅",
-        "02n": "🌥",
-        "03d": "🌥",
-        "03n": "🌥",
-        "04d": "🌥",
-        "04n": "🌥",
-        "09d": "🌧",
-        "09n": "🌧",
-        "10d": "🌦",
-        "10n": "🌧",
-        "11d": "⛈",
-        "11n": "⛈",
-        "13d": "❄",
-        "13n": "❄",
-        "50d": "🌫",
-        "50n": "🌫"
+    readonly property string _requestKey: WeatherState.requestKey(apiKey, location, units)
+    readonly property var _weatherState: WeatherState.states[_requestKey] || ({
+        cityText: location.toUpperCase(),
+        conditionIconText: "○",
+        tempText: "—" + tempUnit,
+        rangeText: "H —°  L —°",
+        intradayData: [],
+        forecastData: [],
+        showIntradayRow: false,
+        showForecastRow: false,
+        isEmptyState: true
     })
-    readonly property var _CONDITION_LABELS: ({
-        Thunderstorm: "Storm",
-        Drizzle: "Drizzle",
-        Rain: "Rain",
-        Snow: "Snow",
-        Mist: "Mist",
-        Smoke: "Smoke",
-        Haze: "Haze",
-        Dust: "Dust",
-        Fog: "Fog",
-        Sand: "Windblown",
-        Ash: "Ash",
-        Squall: "Squall",
-        Tornado: "Tornado",
-        Clear: "Clear",
-        Clouds: "Cloudy"
-    })
-
-    property string cityText: location.toUpperCase()
-    property string conditionIconText: "·"
-    property string tempText: "—" + tempUnit
-    property string rangeText: "H —°  L —°"
-
-    property var intradayData: [
-        { label: "--", icon: "·", temp: "—" },
-        { label: "--", icon: "·", temp: "—" },
-        { label: "--", icon: "·", temp: "—" },
-        { label: "--", icon: "·", temp: "—" },
-        { label: "--", icon: "·", temp: "—" }
-    ]
-    property var forecastData: [
-        { label: "---", icon: "·", high: "—", low: "—" },
-        { label: "---", icon: "·", high: "—", low: "—" },
-        { label: "---", icon: "·", high: "—", low: "—" },
-        { label: "---", icon: "·", high: "—", low: "—" },
-        { label: "---", icon: "·", high: "—", low: "—" }
-    ]
-
-    property bool _curDone: false
-    property bool _fcDone: false
-    property var _curData: null
-    property var _fcData: null
-    property bool _isEmptyState: false
-    readonly property bool _showIntradayRow: _hasUsableIntradayData(intradayData)
-    readonly property bool _showForecastRow: _hasUsableForecastData(forecastData)
-
-    function _pad2(value) {
-        const intValue = Math.max(0, value | 0)
-        return intValue < 10 ? "0" + intValue : String(intValue)
-    }
-
-    function _icon(code) {
-        return _OWM_ICONS[code] || _OWM_ICONS[(code || "").substring(0, 2) + "d"] || "·"
-    }
+    readonly property string cityText: _weatherState.cityText || location.toUpperCase()
+    readonly property string conditionIconText: _weatherState.conditionIconText || "○"
+    readonly property string tempText: _weatherState.tempText || ("—" + tempUnit)
+    readonly property string rangeText: _weatherState.rangeText || "H —°  L —°"
+    readonly property var intradayData: _weatherState.intradayData || []
+    readonly property var forecastData: _weatherState.forecastData || []
+    readonly property bool _isEmptyState: _weatherState.isEmptyState !== false
+    readonly property bool _showIntradayRow: _weatherState.showIntradayRow === true
+    readonly property bool _showForecastRow: _weatherState.showForecastRow === true
 
     function _iconOffset(iconText, pixelSize) {
         return iconText === "🌥" ? Math.round(pixelSize * 0.16) : 0
-    }
-
-    function _temp(value) {
-        return value === undefined || value === null ? "—" : Math.round(value) + "°"
-    }
-
-    function _sameDay(a, b) {
-        return a.getFullYear() === b.getFullYear()
-            && a.getMonth() === b.getMonth()
-            && a.getDate() === b.getDate()
-    }
-
-    function _emptyHourSlot() {
-        return { label: "--", icon: "·", temp: "—" }
-    }
-
-    function _blankHourSlot(label) {
-        return { label: label || "", icon: "", temp: "" }
-    }
-
-    function _emptyDaySlot(index) {
-        return {
-            label: index < _DAYS.length ? _DAYS[(new Date().getDay() + index + 1) % _DAYS.length] : "---",
-            icon: "·",
-            high: "—",
-            low: "—"
-        }
-    }
-
-    function _hasUsableIntradayData(data) {
-        return Array.isArray(data) && data.some(function(entry) {
-            return entry && entry.temp && entry.temp !== "—" && entry.icon && entry.icon !== "·"
-        })
-    }
-
-    function _hasUsableForecastData(data) {
-        return Array.isArray(data) && data.some(function(entry) {
-            return entry && entry.high && entry.high !== "—"
-                && entry.low && entry.low !== "—"
-                && entry.icon && entry.icon !== "·"
-        })
-    }
-
-    function _setEmptyState() {
-        _isEmptyState = true
-        cityText = location.toUpperCase()
-        conditionIconText = _EMPTY_ICON
-        tempText = "—" + tempUnit
-        rangeText = "H —°  L —°"
-        intradayData = [_emptyHourSlot(), _emptyHourSlot(), _emptyHourSlot(), _emptyHourSlot(), _emptyHourSlot()]
-        forecastData = [_emptyDaySlot(0), _emptyDaySlot(1), _emptyDaySlot(2), _emptyDaySlot(3), _emptyDaySlot(4)]
-    }
-
-    Process {
-        id: curProc
-        command: ["curl", "-sL", "--max-time", "10",
-            "https://api.openweathermap.org/data/2.5/weather?q="
-            + encodeURIComponent(root.location)
-            + "&appid=" + root.apiKey
-            + "&units=" + root.units]
-        running: false
-        stdout: StdioCollector { id: curStdio }
-        onExited: {
-            try { root._curData = JSON.parse(curStdio.text) } catch (_) {}
-            root._curDone = true
-            root._tryRender()
-        }
-    }
-
-    Process {
-        id: fcProc
-        command: ["curl", "-sL", "--max-time", "10",
-            "https://api.openweathermap.org/data/2.5/forecast?q="
-            + encodeURIComponent(root.location)
-            + "&appid=" + root.apiKey
-            + "&units=" + root.units]
-        running: false
-        stdout: StdioCollector { id: fcStdio }
-        onExited: {
-            try { root._fcData = JSON.parse(fcStdio.text) } catch (_) {}
-            root._fcDone = true
-            root._tryRender()
-        }
-    }
-
-    function _fetchAll() {
-        if (!apiKey) {
-            _setEmptyState()
-            return
-        }
-
-        _curDone = false
-        _fcDone = false
-        _curData = null
-        _fcData = null
-        curProc.running = true
-        fcProc.running = true
-    }
-
-    function _tryRender() {
-        if (!_curDone || !_fcDone) return
-
-        const cur = _curData
-        const fc = _fcData
-        if (!cur || !cur.main || !cur.weather || cur.weather.length === 0) {
-            _setEmptyState()
-            return
-        }
-
-        const now = new Date()
-        const weather = cur.weather[0]
-        _isEmptyState = false
-        cityText = (cur.name || location).toUpperCase()
-        conditionIconText = _icon(weather.icon || "")
-        tempText = _temp(cur.main.temp) + tempUnit.replace("°", "")
-        rangeText = "H " + _temp(cur.main.temp_max) + "  L " + _temp(cur.main.temp_min)
-
-        if (!fc || !fc.list || !fc.list.length) {
-            _setEmptyState()
-            return
-        }
-
-        const intraday = []
-        for (let i = 0; i < _DAY_PARTS.length; i++) {
-            const slot = _DAY_PARTS[i]
-            if (slot.hour < now.getHours()) {
-                intraday.push(_blankHourSlot(slot.label))
-                continue
-            }
-            let best = null
-            let bestDiff = Infinity
-            for (const entry of fc.list) {
-                const entryDate = new Date(entry.dt * 1000)
-                if (!_sameDay(entryDate, now) || entryDate.getTime() < now.getTime())
-                    continue
-                const diff = Math.abs(entryDate.getHours() - slot.hour)
-                if (diff < bestDiff) {
-                    best = entry
-                    bestDiff = diff
-                }
-            }
-            intraday.push(best && bestDiff <= 3
-                ? {
-                    label: slot.label,
-                    icon: _icon(best.weather && best.weather[0] ? best.weather[0].icon : ""),
-                    temp: _temp(best.main ? best.main.temp : undefined)
-                }
-                : _blankHourSlot(slot.label))
-        }
-        intradayData = intraday
-
-        const dayBuckets = {}
-        for (const entry of fc.list) {
-            const entryDate = new Date(entry.dt * 1000)
-            if (_sameDay(entryDate, now)) continue
-
-            const key = entryDate.getFullYear() + "-" + entryDate.getMonth() + "-" + entryDate.getDate()
-            if (!dayBuckets[key]) {
-                dayBuckets[key] = {
-                    date: entryDate,
-                    high: entry.main.temp_max,
-                    low: entry.main.temp_min,
-                    icon: entry.weather && entry.weather[0] ? entry.weather[0].icon : "",
-                    precip: entry.pop || 0,
-                    bestHourDistance: Math.abs(entryDate.getHours() - 13)
-                }
-            } else {
-                const bucket = dayBuckets[key]
-                bucket.high = Math.max(bucket.high, entry.main.temp_max)
-                bucket.low = Math.min(bucket.low, entry.main.temp_min)
-                bucket.precip = Math.max(bucket.precip, entry.pop || 0)
-                const distance = Math.abs(entryDate.getHours() - 13)
-                if (distance < bucket.bestHourDistance) {
-                    bucket.bestHourDistance = distance
-                    bucket.icon = entry.weather && entry.weather[0] ? entry.weather[0].icon : bucket.icon
-                }
-            }
-        }
-
-        const nextDays = Object.values(dayBuckets)
-            .sort(function(a, b) { return a.date.getTime() - b.date.getTime() })
-            .slice(0, 5)
-            .map(function(bucket) {
-                return {
-                    label: _DAYS[bucket.date.getDay()],
-                    icon: _icon(bucket.icon),
-                    high: _temp(bucket.high),
-                    low: _temp(bucket.low)
-                }
-            })
-
-        while (nextDays.length < 5)
-            nextDays.push(_emptyDaySlot(nextDays.length))
-
-        if (!_hasUsableIntradayData(intraday) && !_hasUsableForecastData(nextDays)) {
-            _setEmptyState()
-            return
-        }
-        forecastData = nextDays
     }
 
     Timer {
@@ -321,12 +61,11 @@ Item {
         repeat: true
         running: root.visible
         triggeredOnStart: true
-        onTriggered: root._fetchAll()
+        onTriggered: WeatherState.request(root.apiKey, root.location, root.units)
     }
 
     Item {
         anchors.fill: parent
-        anchors.margins: root._nativePanel ? 0 : 10
 
         Rectangle {
             anchors.fill: parent
@@ -337,103 +76,54 @@ Item {
 
             Column {
                 visible: !root._isEmptyState
-                anchors.fill: parent
-                anchors.margins: root._compact ? 10 : 12
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                anchors.leftMargin: root._contentOffsetX
+                anchors.topMargin: root._compact ? 10 : 12
+                anchors.bottomMargin: root._compact ? 10 : 12
                 spacing: 8
 
-                Row {
+                Grid {
+                    id: topRowGrid
                     width: parent.width
                     height: root._compact ? 32 : 34
-                    spacing: 8
+                    columns: 5
+                    columnSpacing: 0
+                    rowSpacing: 0
 
-                    // Box 0: current weather
-                    Item {
-                        width: (parent.width - parent.spacing * 4) / 5
-                        height: parent.height
-
-                        Column {
-                            anchors.fill: parent
-                            spacing: 0
-
-                            Text {
-                                width: parent.width
-                                height: 9
-                                text: "NOW"
-                                font.family: Theme.fontFamily
-                                font.pixelSize: 7
-                                font.letterSpacing: 1
-                                color: root._mutedText
-                                horizontalAlignment: Text.AlignHCenter
-                            }
-
-                            Item {
-                                width: parent.width
-                                height: parent.height - 9
-
-                                Row {
-                                    anchors.centerIn: parent
-                                    spacing: 4
-
-                                    Item {
-                                        width: root._compact ? 18 : 20
-                                        height: parent.height
-
-                                        Text {
-                                            anchors.centerIn: parent
-                                            anchors.verticalCenterOffset: root._iconOffset(root.conditionIconText, font.pixelSize)
-                                            text: root.conditionIconText
-                                            font.family: Theme.fontFamily
-                                            font.pixelSize: root._compact ? 22 : 23
-                                            color: root._textColor
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                        }
-                                    }
-
-                                    Column {
-                                        width: root._compact ? 24 : 28
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        spacing: 0
-
-                                        Text {
-                                            width: parent.width
-                                            height: 8
-                                            text: root.tempText.replace(root.tempUnit.replace("°", ""), "")
-                                            font.family: Theme.fontFamily
-                                            font.pixelSize: 9
-                                            font.bold: true
-                                            color: root._textColor
-                                            horizontalAlignment: Text.AlignHCenter
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Boxes 1-4: intraday slots, skip Morning (index 0)
                     Repeater {
-                        model: root._showIntradayRow ? root.intradayData.slice(1, 5) : []
+                        model: 5
 
                         delegate: Item {
-                            required property var modelData
+                            readonly property bool isCurrent: index === 0
+                            readonly property var rowData: isCurrent ? {
+                                label: "NOW",
+                                icon: root.conditionIconText,
+                                temp: root.tempText.replace(root.tempUnit.replace("°", ""), "")
+                            } : (root.intradayData[index] || { label: "--", icon: "·", temp: "—" })
 
-                            width: (parent.width - parent.spacing * 4) / 5
-                            height: parent.height
+                            width: topRowGrid.width / 5
+                            height: topRowGrid.height
 
                             Column {
                                 anchors.fill: parent
                                 spacing: 0
 
-                                Text {
-                                    width: parent.width
+                                AccentText {
+                                    anchors.horizontalCenter: parent.horizontalCenter
                                     height: 9
-                                    text: modelData.label
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 7
-                                    font.letterSpacing: 1
-                                    color: root._mutedText
+                                    text: rowData.label
+                                    fontFamily: Theme.fontFamily
+                                    fontPixelSize: 7
+                                    fontLetterSpacing: 1
+                                    color: isCurrent ? root._textColor : root._mutedText
                                     horizontalAlignment: Text.AlignHCenter
+                                    radius: 5
+                                    paddingX: 4
+                                    paddingY: 0
+                                    backgroundVisible: isCurrent
                                 }
 
                                 Item {
@@ -450,8 +140,8 @@ Item {
 
                                             Text {
                                                 anchors.centerIn: parent
-                                                anchors.verticalCenterOffset: root._iconOffset(modelData.icon, font.pixelSize)
-                                                text: modelData.icon
+                                                anchors.verticalCenterOffset: root._iconOffset(rowData.icon, font.pixelSize)
+                                                text: rowData.icon
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: root._compact ? 22 : 23
                                                 color: root._textColor
@@ -468,7 +158,7 @@ Item {
                                             Text {
                                                 width: parent.width
                                                 height: 8
-                                                text: modelData.temp
+                                                text: rowData.temp
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: 9
                                                 font.bold: true
@@ -487,19 +177,28 @@ Item {
                     width: parent.width
                     spacing: 0
 
-                    Row {
+                    Grid {
+                        id: forecastGrid
                         visible: root._showForecastRow
                         width: parent.width
-                        spacing: 8
+                        height: root._compact ? 32 : 34
+                        columns: 5
+                        columnSpacing: 0
+                        rowSpacing: 0
 
                         Repeater {
-                            model: root.forecastData
+                            model: 5
 
                             delegate: Item {
-                                required property var modelData
+                                readonly property var rowData: root.forecastData[index] || {
+                                    label: "---",
+                                    icon: "·",
+                                    high: "—",
+                                    low: "—"
+                                }
 
-                                width: (parent.width - parent.spacing * 4) / 5
-                                height: root._compact ? 32 : 34
+                                width: forecastGrid.width / 5
+                                height: forecastGrid.height
 
                                 Column {
                                     anchors.fill: parent
@@ -508,7 +207,7 @@ Item {
                                     Text {
                                         width: parent.width
                                         height: 9
-                                        text: modelData.label
+                                        text: rowData.label
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 7
                                         font.letterSpacing: 1
@@ -528,13 +227,13 @@ Item {
                                                 width: root._compact ? 18 : 20
                                                 height: parent.height
 
-                                                Text {
-                                                    anchors.centerIn: parent
-                                                    anchors.verticalCenterOffset: root._iconOffset(modelData.icon, font.pixelSize)
-                                                    text: modelData.icon
-                                                    font.family: Theme.fontFamily
-                                                    font.pixelSize: root._compact ? 22 : 23
-                                                    color: root._textColor
+                                            Text {
+                                                anchors.centerIn: parent
+                                                anchors.verticalCenterOffset: root._iconOffset(rowData.icon, font.pixelSize)
+                                                text: rowData.icon
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: root._compact ? 22 : 23
+                                                color: root._textColor
                                                     horizontalAlignment: Text.AlignHCenter
                                                     verticalAlignment: Text.AlignVCenter
                                                 }
@@ -548,7 +247,7 @@ Item {
                                                 Text {
                                                     width: parent.width
                                                     height: 9
-                                                    text: modelData.high
+                                                    text: rowData.high
                                                     font.family: Theme.fontFamily
                                                     font.pixelSize: 9
                                                     font.bold: true
@@ -559,7 +258,7 @@ Item {
                                                 Text {
                                                     width: parent.width
                                                     height: 9
-                                                    text: modelData.low
+                                                    text: rowData.low
                                                     font.family: Theme.fontFamily
                                                     font.pixelSize: 8
                                                     color: root._mutedText

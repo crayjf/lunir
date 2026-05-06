@@ -3,8 +3,12 @@ WidgetItem 1.0 WidgetItem.qml
 WallpaperBackground 1.0 WallpaperBackground.qml
 DesktopWidgetLayer 1.0 DesktopWidgetLayer.qml
 DesktopEditWidgetWindow 1.0 DesktopEditWidgetWindow.qml
+DesktopGridOverlay 1.0 DesktopGridOverlay.qml
 VolumeOSD 1.0 VolumeOSD.qml
 NotificationOSD 1.0 NotificationOSD.qml
+DesktopBackdrop 1.0 DesktopBackdrop.qml
+WallpaperScene 1.0 WallpaperScene.qml
+DateTextModule 1.0 DateTextModule.qml
 ClockModule 1.0 ClockModule.qml
 WeekdayModule 1.0 WeekdayModule.qml
 DateDayModule 1.0 DateDayModule.qml

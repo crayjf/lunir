@@ -1,6 +1,7 @@
 import QtQuick 2.15
 import Quickshell
 import "../lib"
+import "../lib/DesktopWidgetGeometry.js" as DesktopWidgetGeometry
 
 // Per-widget Item inside the desktop wallpaper surface.
 // Positioned absolutely (x/y). Animation is handled by the container.
@@ -49,9 +50,7 @@ Item {
 
     // ── Config sync ────────────────────────────────────────────────────────────
     function _maxAllowedHeight() {
-        if (_maxHeightRatio > 0 && parent)
-            return Math.max(_minH, parent.height * _maxHeightRatio)
-        return Infinity
+        return DesktopWidgetGeometry.maxAllowedHeight(_minH, _maxHeightRatio, parent ? parent.height : 0)
     }
 
     function _updateAutoWidth() {
@@ -64,48 +63,60 @@ Item {
 
     function _syncFromConfig() {
         if (!moduleConfig || _dragging || _resizing) return
-        const maxH = _maxAllowedHeight()
-        if (_autoSize) {
-            const item = moduleLoader.item
-            _w = (item && item.implicitWidth > 0) ? item.implicitWidth : _minW
-        } else {
-            _w = _spanMonitorWidth && parent
-                ? parent.width
-                : (moduleConfig.width ?? _minW)
-        }
-        _h = Math.min(moduleConfig.height ?? _minH, maxH)
-        _x = _spanMonitorWidth ? 0 : (moduleConfig.x ?? 0)
-        _y = _stickToBottom && parent
-            ? Math.max(0, parent.height - _h)
-            : (moduleConfig.y ?? 0)
+        const item = moduleLoader.item
+        const geometry = DesktopWidgetGeometry.syncFromConfig(moduleConfig, {
+            hostWidth: parent ? parent.width : 0,
+            hostHeight: parent ? parent.height : 0,
+            minWidth: _minW,
+            minHeight: _minH,
+            spanMonitorWidth: _spanMonitorWidth,
+            stickToBottom: _stickToBottom,
+            maxHeightRatio: _maxHeightRatio,
+            autoSize: _autoSize,
+            implicitWidth: item ? item.implicitWidth : 0
+        })
+        _x = geometry.x
+        _y = geometry.y
+        _w = geometry.width
+        _h = geometry.height
     }
 
     function _clampToParent() {
         if (!parent) return
-        const effectiveMinW = _autoSize ? 1 : _minW
-        if (!_spanMonitorWidth)
-            _w = Math.min(parent.width, Math.max(effectiveMinW, _w))
-        _h = Math.min(_maxAllowedHeight(), Math.min(parent.height, Math.max(_minH, _h)))
-        _x = _spanMonitorWidth ? 0 : Math.max(0, Math.min(_x, parent.width - _w))
-        _y = _stickToBottom
-            ? Math.max(0, parent.height - _h)
-            : Math.max(0, Math.min(_y, parent.height - _h))
+        const geometry = DesktopWidgetGeometry.clampGeometry({
+            x: _x,
+            y: _y,
+            width: _w,
+            height: _h
+        }, {
+            hostWidth: parent.width,
+            hostHeight: parent.height,
+            minWidth: _minW,
+            minHeight: _minH,
+            spanMonitorWidth: _spanMonitorWidth,
+            stickToBottom: _stickToBottom,
+            maxHeightRatio: _maxHeightRatio,
+            autoSize: _autoSize
+        })
+        _x = geometry.x
+        _y = geometry.y
+        _w = geometry.width
+        _h = geometry.height
     }
 
     function _persistGeometry() {
         if (!moduleConfig || !moduleConfig.id) return
         _clampToParent()
-
-        const updates = { height: _h }
-        if (!_spanMonitorWidth) {
-            updates.x = _x
-            if (!_autoSize)
-                updates.width = _w
-        }
-        if (!_stickToBottom)
-            updates.y = _y
-
-        Config.updateDesktopModule(moduleConfig.id, updates)
+        Config.updateDesktopModule(moduleConfig.id, DesktopWidgetGeometry.persistedUpdates({
+            x: _x,
+            y: _y,
+            width: _w,
+            height: _h
+        }, {
+            spanMonitorWidth: _spanMonitorWidth,
+            stickToBottom: _stickToBottom,
+            autoSize: _autoSize
+        }))
     }
 
     onModuleConfigChanged: {
@@ -148,7 +159,7 @@ Item {
         }
     }
 
-    function snap(v) { return Math.round(v / 20) * 20 }
+    function snap(v) { return DesktopWidgetGeometry.snap(v, 20) }
 
     function _showGrid() {
         if (win.gridControllerId) ModuleControllers.show(win.gridControllerId)

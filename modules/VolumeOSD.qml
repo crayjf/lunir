@@ -1,8 +1,10 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
+import QtQuick.Effects
 import Quickshell
 import Quickshell.Services.Pipewire
 import Quickshell.Wayland
+import Quickshell.Widgets
 import "../lib"
 
 PanelWindow {
@@ -31,6 +33,11 @@ PanelWindow {
     readonly property color _trackColor: Theme.track
     readonly property color _mutedText: Theme.textMuted
 
+    readonly property string _backdropMode: Config.backdrop.mode || "blur"
+    readonly property real _backdropBlur: Config.backdrop.blur ?? 1.0
+    readonly property int _backdropBlurMax: Config.backdrop.blurMax ?? 64
+    readonly property real _backdropSaturation: Config.backdrop.saturation ?? -0.15
+
     property real fadeOpacity: 0.0
     property int volumeLevel: _sinkAudio ? Math.round((_sinkAudio.volume || 0) * 100) : 0
     property bool volumeMuted: _sinkAudio ? !!_sinkAudio.muted : false
@@ -47,20 +54,34 @@ PanelWindow {
         if (fadeOpacity <= 0.0) visible = false
     }
 
-    Rectangle {
+    ClippingRectangle {
         id: frame
         anchors.fill: parent
         radius: Theme.radiusLarge
-        color: Qt.rgba(win._panelColor.r, win._panelColor.g, win._panelColor.b, win._panelColor.a * win.fadeOpacity)
-        border.width: Theme.borderWidth
-        border.color: Qt.rgba(Theme.border.r, Theme.border.g, Theme.border.b, Theme.border.a * win.fadeOpacity)
+        color: "transparent"
         opacity: win.fadeOpacity
 
-        RainbowBorder {
+        Item {
+            id: wallpaperBackdrop
             anchors.fill: parent
-            visible: Theme.borderIsRainbow && Theme.borderWidth > 0
-            radius: parent.radius
-            lineWidth: Theme.borderWidth
+            visible: win._backdropMode !== "none"
+
+            DesktopBackdrop {
+                anchors.fill: parent
+                screen: win.screen || Quickshell.screens[0]
+                sourceX: ((screen ? screen.width : win.implicitWidth) - win.implicitWidth) / 2
+                sourceY: (screen ? screen.height : win.implicitHeight) - 34 - win.implicitHeight
+                mode: win._backdropMode
+                blur: win._backdropBlur
+                blurMax: win._backdropBlurMax
+                saturation: win._backdropSaturation
+                includeDesktopWidgets: false
+            }
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            color: win._panelColor
         }
 
         Row {
@@ -149,6 +170,23 @@ PanelWindow {
                 }
             }
         }
+    }
+
+    Rectangle {
+        anchors.fill: frame
+        color: "transparent"
+        radius: frame.radius
+        border.width: Theme.borderWidth
+        border.color: Theme.border
+        opacity: win.fadeOpacity
+    }
+
+    RainbowBorder {
+        anchors.fill: frame
+        visible: Theme.borderIsRainbow && Theme.borderWidth > 0
+        radius: frame.radius
+        lineWidth: Theme.borderWidth
+        opacity: win.fadeOpacity
     }
 
     Timer {

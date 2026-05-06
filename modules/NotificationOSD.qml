@@ -1,6 +1,7 @@
 import QtQuick 2.15
 import Quickshell
 import Quickshell.Wayland
+import Quickshell.Widgets
 import "../lib"
 
 PanelWindow {
@@ -10,6 +11,7 @@ PanelWindow {
     screen: Quickshell.screens[0]
     focusable: false
     WlrLayershell.layer: WlrLayershell.Overlay
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     WlrLayershell.namespace: Config.namespaceFor("notification")
     anchors { top: true }
     exclusionMode: ExclusionMode.Normal
@@ -24,6 +26,11 @@ PanelWindow {
     readonly property color _panelColor: Theme.background
     readonly property color _mutedText: Theme.textMuted
     readonly property color _softText: Theme.textMuted
+
+    readonly property string _backdropMode: Config.backdrop.mode || "blur"
+    readonly property real _backdropBlur: Config.backdrop.blur ?? 1.0
+    readonly property int _backdropBlurMax: Config.backdrop.blurMax ?? 64
+    readonly property real _backdropSaturation: Config.backdrop.saturation ?? -0.15
 
     property int _nextToken: 1
 
@@ -61,6 +68,15 @@ PanelWindow {
 
     function _closeToken(token) {
         closeToken(token)
+    }
+
+    function _dismissCurrentNotification() {
+        if (osdModel.count === 0)
+            return
+        const current = osdModel.get(0)
+        if (!current || current.id === undefined)
+            return
+        NotificationService.dismiss(current.id)
     }
 
     function showNotification(n) {
@@ -108,14 +124,12 @@ PanelWindow {
                     }
                 }
 
-                Rectangle {
+                ClippingRectangle {
                     id: frame
                     width: win._w
                     height: Math.max(76, contentCol.implicitHeight + 28)
                     radius: Theme.radiusLarge
-                    color: win._panelColor
-                    border.width: Theme.borderWidth
-                    border.color: Theme.border
+                    color: "transparent"
                     opacity: slot.closing ? 0.0 : 1.0
 
                     Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
@@ -124,11 +138,22 @@ PanelWindow {
                             win._removeToken(slot.token)
                     }
 
-                    RainbowBorder {
+                    DesktopBackdrop {
+                        id: wallpaperBackdrop
                         anchors.fill: parent
-                        visible: Theme.borderIsRainbow && Theme.borderWidth > 0
-                        radius: parent.radius
-                        lineWidth: Theme.borderWidth
+                        screen: win.screen || Quickshell.screens[0]
+                        sourceX: ((screen ? screen.width : win._w) - win._w) / 2
+                        sourceY: 20 + slot.y
+                        mode: win._backdropMode
+                        blur: win._backdropBlur
+                        blurMax: win._backdropBlurMax
+                        saturation: win._backdropSaturation
+                        includeDesktopWidgets: false
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        color: win._panelColor
                     }
 
                     Row {
@@ -219,6 +244,23 @@ PanelWindow {
                             win._closeToken(slot.token)
                         }
                     }
+                }
+
+                Rectangle {
+                    anchors.fill: frame
+                    color: "transparent"
+                    radius: frame.radius
+                    border.width: Theme.borderWidth
+                    border.color: Theme.border
+                    opacity: frame.opacity
+                }
+
+                RainbowBorder {
+                    anchors.fill: frame
+                    visible: Theme.borderIsRainbow && Theme.borderWidth > 0
+                    radius: frame.radius
+                    lineWidth: Theme.borderWidth
+                    opacity: frame.opacity
                 }
 
                 Timer {

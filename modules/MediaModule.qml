@@ -24,9 +24,10 @@ Item {
     property string artist: player ? (player.trackArtist || "Waiting for playback") : "Waiting for playback"
     property string artPath: player ? (player.trackArtUrl || "") : ""
     property bool playing: player ? player.isPlaying : false
-    property string timeText: player ? root._formatProgress() : ""
+    property real _livePosition: 0
+    property string timeText: player ? root._formatProgress(root._livePosition) : ""
     property real progress: player && player.lengthSupported && player.length > 0
-        ? Math.min(player.position / player.length, 1.0)
+        ? Math.min(root._livePosition / player.length, 1.0)
         : 0.0
 
     function _fmtTime(seconds) {
@@ -35,9 +36,19 @@ Item {
         return m + ":" + String(total % 60).padStart(2, "0")
     }
 
-    function _formatProgress() {
+    function _formatProgress(position) {
         if (!player || !player.lengthSupported || player.length <= 0) return ""
-        return _fmtTime(player.position) + " / " + _fmtTime(player.length)
+        return _fmtTime(position) + " / " + _fmtTime(player.length)
+    }
+
+    function _clampPosition(position) {
+        if (!player || !player.lengthSupported || player.length <= 0)
+            return 0
+        return Math.max(0, Math.min(position || 0, player.length))
+    }
+
+    function _syncLivePosition() {
+        root._livePosition = root._clampPosition(player ? player.position : 0)
     }
 
     function _controlIconOffsetX(label) {
@@ -60,10 +71,30 @@ Item {
     }
 
     Timer {
+        id: progressTimer
         running: root.playing && !!root.player
         interval: 1000
         repeat: true
-        onTriggered: root.timeText = root._formatProgress()
+        triggeredOnStart: true
+        onTriggered: {
+            if (!root.player)
+                return
+            root._livePosition = root._clampPosition(root._livePosition + 1)
+        }
+    }
+
+    onPlayerChanged: root._syncLivePosition()
+    onPlayingChanged: root._syncLivePosition()
+    Component.onCompleted: root._syncLivePosition()
+
+    Connections {
+        target: root.player
+        function onPositionChanged() { root._syncLivePosition() }
+        function onLengthChanged() { root._syncLivePosition() }
+        function onTrackTitleChanged() { root._syncLivePosition() }
+        function onTrackArtistChanged() { root._syncLivePosition() }
+        function onTrackArtUrlChanged() { root._syncLivePosition() }
+        function onIsPlayingChanged() { root._syncLivePosition() }
     }
 
     Item {

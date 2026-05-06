@@ -5,4 +5,10 @@ singleton ModuleControllers 1.0 ModuleControllers.qml
 singleton DesktopState 1.0 DesktopState.qml
 singleton NotificationService 1.0 NotificationService.qml
 singleton SelectedDay 1.0 SelectedDay.qml
+singleton GarminState 1.0 GarminState.qml
+singleton WeatherState 1.0 WeatherState.qml
+singleton CalendarState 1.0 CalendarState.qml
+singleton WallpaperState 1.0 WallpaperState.qml
+singleton SystemState 1.0 SystemState.qml
 RainbowBorder 1.0 RainbowBorder.qml
+AccentText 1.0 AccentText.qml

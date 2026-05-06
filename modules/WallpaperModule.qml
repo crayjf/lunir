@@ -1,6 +1,5 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
-import Quickshell.Io
 import Quickshell.Widgets
 import "../lib"
 
@@ -9,123 +8,159 @@ Item {
     focus: visible
 
     property var moduleConfig: null
+    readonly property int preferredHeight: Math.max(96, Math.min(150, Math.round(width * 0.24)))
+    implicitHeight: preferredHeight
 
     readonly property color _accentColor: Theme.color(moduleConfig, "accentColor", "#FF79C6FF")
 
     readonly property string _wallpaperFolder: Config.wallpaper.folder || "~/Pictures/Wallpaper"
     readonly property string _currentWallpaper: Config.wallpaper.current || ""
+    readonly property var _wallpaperState: WallpaperState
+    readonly property var _files: _wallpaperState.files || []
     readonly property string _previewPath: (_selectedIdx >= 0 && _selectedIdx < _files.length) ? _files[_selectedIdx] : ""
     readonly property bool _hasSelection: _previewPath !== ""
     readonly property bool _hasMultiple: _files.length > 1
-    readonly property string _previousPath: _hasMultiple && _selectedIdx >= 0
-        ? _files[(_selectedIdx - 1 + _files.length) % _files.length] : ""
-    readonly property string _nextPath: _hasMultiple && _selectedIdx >= 0
-        ? _files[(_selectedIdx + 1) % _files.length] : ""
+    readonly property string _previousPath: _hasMultiple && _selectedIdx >= 0 ? _files[(_selectedIdx - 1 + _files.length) % _files.length] : ""
+    readonly property string _nextPath: _hasMultiple && _selectedIdx >= 0 ? _files[(_selectedIdx + 1) % _files.length] : ""
     readonly property bool _isAnimating: slideAnim.running
-    property var _files: []
+    readonly property var _preloadPaths: {
+        if (_selectedIdx < 0 || _files.length === 0)
+            return [];
+        const paths = [];
+        const preloadOffsets = [-2, -1, 0, 1, 2];
+        if (_isAnimating)
+            preloadOffsets.push(_animDir > 0 ? 3 : -3);
+        for (const offset of preloadOffsets) {
+            const path = _pathAt(_selectedIdx, offset);
+            if (path && paths.indexOf(path) === -1)
+                paths.push(path);
+        }
+        return paths;
+    }
     property int _selectedIdx: -1
     property int _animStartIdx: -1
     property int _animDir: 0
     property real _slideProgress: 0.0
+    property bool _animatingTransition: false
+    property string _selectionPathHint: ""
 
     function _wrapIndex(idx) {
-        if (_files.length <= 0) return -1
-        return (idx % _files.length + _files.length) % _files.length
+        if (_files.length <= 0)
+            return -1;
+        return (idx % _files.length + _files.length) % _files.length;
     }
     function _pathAt(baseIdx, offset) {
-        const wrapped = _wrapIndex(baseIdx + offset)
-        return wrapped >= 0 ? _files[wrapped] : ""
+        const wrapped = _wrapIndex(baseIdx + offset);
+        return wrapped >= 0 ? _files[wrapped] : "";
     }
-    function _shuffle(items) {
-        const shuffled = (items || []).slice()
-        for (let i = shuffled.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1))
-            const tmp = shuffled[i]
-            shuffled[i] = shuffled[j]
-            shuffled[j] = tmp
-        }
-        return shuffled
-    }
-
     function _syncSelection(preferredPath) {
+        _animatingTransition = false;
+        _animStartIdx = -1;
+        _animDir = 0;
+        _slideProgress = 0;
         if (_files.length === 0) {
-            _selectedIdx = -1
-            return
+            _selectedIdx = -1;
+            _selectionPathHint = "";
+            return;
         }
 
-        const preferred = preferredPath || _currentWallpaper
-        const idx = preferred ? _files.indexOf(preferred) : -1
-        _selectedIdx = idx >= 0 ? idx : Math.max(0, Math.min(_selectedIdx, _files.length - 1))
+        const preferred = preferredPath || _selectionPathHint || _currentWallpaper;
+        const idx = preferred ? _files.indexOf(preferred) : -1;
+        _selectedIdx = idx >= 0 ? idx : Math.max(0, Math.min(_selectedIdx, _files.length - 1));
+        _selectionPathHint = (_selectedIdx >= 0 && _selectedIdx < _files.length) ? _files[_selectedIdx] : "";
     }
 
-    function _refreshWallpapers() {
-        scanProc.folder = _wallpaperFolder
-        scanProc.running = true
+    function _refreshWallpapers(preferredPath) {
+        if (_wallpaperState.scanRunning)
+            return;
+        _wallpaperState.refresh(_wallpaperFolder, preferredPath || _selectionPathHint || _currentWallpaper, _currentWallpaper);
     }
 
     function _selectIdx(idx) {
-        if (_files.length === 0) return
-        _selectedIdx = Math.max(0, Math.min(idx, _files.length - 1))
+        if (_files.length === 0)
+            return;
+        _selectedIdx = Math.max(0, Math.min(idx, _files.length - 1));
+        _selectionPathHint = _previewPath;
     }
 
     function _selectRelative(step) {
-        if (_files.length === 0) return
-        if (_isAnimating) return
+        if (_files.length === 0)
+            return;
+        if (_isAnimating)
+            return;
         if (_selectedIdx < 0) {
-            _selectIdx(0)
-            return
+            _selectIdx(0);
+            return;
         }
 
-        _animStartIdx = _selectedIdx
-        _animDir = step < 0 ? -1 : 1
-        _slideProgress = 0
-        slideAnim.start()
+        _animStartIdx = _selectedIdx;
+        _animDir = step < 0 ? -1 : 1;
+        _animatingTransition = true;
+        _selectedIdx = _wrapIndex(_selectedIdx + _animDir);
+        _slideProgress = 0;
+        _selectionPathHint = _previewPath;
+        slideAnim.start();
     }
 
     function _applySelected() {
         if (_hasSelection)
-            Config.updateWallpaper({ current: _previewPath })
+            Config.updateWallpaper({
+                current: _previewPath
+            });
     }
 
-    Process {
-        id: scanProc
-        property string folder: ""
-        command: ["sh", "-c",
-            "f=${1/#~/$HOME}; find \"$f\" -maxdepth 2 -type f " +
-            "\\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' " +
-            "-o -iname '*.avif' -o -iname '*.tiff' \\) 2>/dev/null | sort",
-            "sh", scanProc.folder]
-        running: false
-        stdout: StdioCollector { id: scanStdio }
-        onExited: {
-            const previousPath = root._previewPath
-            const scanned = scanStdio.text.trim().split("\n").filter(function(line) { return line.trim().length > 0 })
-            root._files = root._shuffle(scanned)
-            root._syncSelection(previousPath)
+    function _deleteSelected() {
+        if (!_hasSelection || _wallpaperState.deleteRunning || _isAnimating)
+            return;
+        const deletingPath = _previewPath;
+        const deletingCurrent = deletingPath === _currentWallpaper;
+        let fallbackPath = "";
+
+        if (_files.length > 1) {
+            const fallbackIdx = _selectedIdx < _files.length - 1 ? _selectedIdx + 1 : _selectedIdx - 1;
+            fallbackPath = _files[Math.max(0, fallbackIdx)] || "";
         }
+
+        _wallpaperState.deleteWallpaper(deletingPath, fallbackPath, deletingCurrent, _currentWallpaper);
     }
 
     onVisibleChanged: {
         if (visible) {
-            _refreshWallpapers()
-            forceActiveFocus()
+            if (_files.length === 0)
+                _refreshWallpapers();
+            forceActiveFocus();
         }
+    }
+
+    on_WallpaperFolderChanged: {
+        if (_wallpaperFolder !== _wallpaperState.lastScannedFolder)
+            _refreshWallpapers(_currentWallpaper);
     }
 
     Connections {
         target: Config
         function onWallpaperChanged() {
-            if (!scanProc.running)
-                root._syncSelection(root._currentWallpaper)
+            if (!_wallpaperState.scanRunning)
+                root._syncSelection(root._currentWallpaper);
         }
     }
 
-    Component.onCompleted: _refreshWallpapers()
+    Connections {
+        target: _wallpaperState
+        function onFilesChanged() {
+            root._syncSelection(_wallpaperState.preferredSelectionPath || root._selectionPathHint || root._currentWallpaper);
+        }
+    }
 
     Keys.onLeftPressed: root._selectRelative(-1)
     Keys.onRightPressed: root._selectRelative(1)
     Keys.onReturnPressed: root._applySelected()
-    Keys.onEnterPressed: root._applySelected()
+    Keys.onPressed: event => {
+        if (event.key === Qt.Key_X && (event.modifiers & Qt.ControlModifier)) {
+            root._deleteSelected();
+            event.accepted = true;
+        }
+    }
 
     SequentialAnimation {
         id: slideAnim
@@ -139,11 +174,10 @@ Item {
         }
         ScriptAction {
             script: {
-                if (root._animDir !== 0 && root._animStartIdx >= 0)
-                    root._selectedIdx = root._wrapIndex(root._animStartIdx + root._animDir)
-                root._slideProgress = 0
-                root._animStartIdx = -1
-                root._animDir = 0
+                root._slideProgress = 0;
+                root._animStartIdx = -1;
+                root._animDir = 0;
+                root._animatingTransition = false;
             }
         }
     }
@@ -151,35 +185,82 @@ Item {
     Item {
         id: heroArea
         anchors.fill: parent
-        readonly property real _previewScale: 0.85
         readonly property real _centerGap: 12
         readonly property real _previewRadius: 18
+        readonly property real _previewHeight: Math.min(previewFrame.height, Math.floor(Math.max(0, previewFrame.width - heroArea._centerGap * 4) * 3 / 16))
+        readonly property real _centerWidth: Math.round(heroArea._previewHeight * 16 / 9)
+        readonly property real _innerWidth: Math.round(heroArea._centerWidth * 0.8)
+        readonly property real _outerWidth: Math.max(0, Math.round((previewFrame.width - heroArea._centerGap * 4 - heroArea._centerWidth - heroArea._innerWidth * 2) / 2))
 
-        function _lerp(a, b, t) { return a + (b - a) * t }
-        function _slotRect(name) {
-            switch (name) {
-            case "left":
-                return { x: leftPreviewWrap.x, y: leftPreviewWrap.y, w: leftPreviewWrap.width, h: leftPreviewWrap.height }
-            case "center":
-                return { x: mainPreview.x, y: mainPreview.y, w: mainPreview.width, h: mainPreview.height }
-            case "right":
-                return { x: rightPreviewWrap.x, y: rightPreviewWrap.y, w: rightPreviewWrap.width, h: rightPreviewWrap.height }
-            case "offLeft":
+        function _lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+        function _slotRect(offset) {
+            const y = previewFrame.y + Math.round((previewFrame.height - heroArea._previewHeight) / 2);
+            const leftX = previewFrame.x;
+            const outerLeftX = leftX;
+            const leftMidX = outerLeftX + heroArea._outerWidth + heroArea._centerGap;
+            const centerX = leftMidX + heroArea._innerWidth + heroArea._centerGap;
+            const rightMidX = centerX + heroArea._centerWidth + heroArea._centerGap;
+            const outerRightX = rightMidX + heroArea._innerWidth + heroArea._centerGap;
+
+            switch (offset) {
+            case -3:
                 return {
-                    x: leftPreviewWrap.x - leftPreviewWrap.width - heroArea._centerGap,
-                    y: leftPreviewWrap.y,
-                    w: leftPreviewWrap.width,
-                    h: leftPreviewWrap.height
-                }
-            case "offRight":
+                    x: outerLeftX - heroArea._outerWidth - heroArea._centerGap,
+                    y: y,
+                    w: heroArea._outerWidth,
+                    h: heroArea._previewHeight
+                };
+            case -2:
                 return {
-                    x: rightPreviewWrap.x + rightPreviewWrap.width + heroArea._centerGap,
-                    y: rightPreviewWrap.y,
-                    w: rightPreviewWrap.width,
-                    h: rightPreviewWrap.height
-                }
+                    x: outerLeftX,
+                    y: y,
+                    w: heroArea._outerWidth,
+                    h: heroArea._previewHeight
+                };
+            case -1:
+                return {
+                    x: leftMidX,
+                    y: y,
+                    w: heroArea._innerWidth,
+                    h: heroArea._previewHeight
+                };
+            case 0:
+                return {
+                    x: centerX,
+                    y: y,
+                    w: heroArea._centerWidth,
+                    h: heroArea._previewHeight
+                };
+            case 1:
+                return {
+                    x: rightMidX,
+                    y: y,
+                    w: heroArea._innerWidth,
+                    h: heroArea._previewHeight
+                };
+            case 2:
+                return {
+                    x: outerRightX,
+                    y: y,
+                    w: heroArea._outerWidth,
+                    h: heroArea._previewHeight
+                };
+            case 3:
+                return {
+                    x: outerRightX + heroArea._outerWidth + heroArea._centerGap,
+                    y: y,
+                    w: heroArea._outerWidth,
+                    h: heroArea._previewHeight
+                };
             default:
-                return { x: 0, y: previewFrame.y, w: 0, h: previewFrame.height }
+                return {
+                    x: centerX,
+                    y: y,
+                    w: heroArea._centerWidth,
+                    h: heroArea._previewHeight
+                };
             }
         }
         function _mixRect(fromRect, toRect) {
@@ -188,284 +269,196 @@ Item {
                 y: _lerp(fromRect.y, toRect.y, root._slideProgress),
                 w: _lerp(fromRect.w, toRect.w, root._slideProgress),
                 h: _lerp(fromRect.h, toRect.h, root._slideProgress)
-            }
+            };
         }
-        function _animatedRect(role) {
-            if (root._animDir > 0) {
-                if (role === "prev") return _mixRect(_slotRect("left"), _slotRect("offLeft"))
-                if (role === "current") return _mixRect(_slotRect("center"), _slotRect("left"))
-                if (role === "next") return _mixRect(_slotRect("right"), _slotRect("center"))
-                if (role === "incoming") return _mixRect(_slotRect("offRight"), _slotRect("right"))
-            } else if (root._animDir < 0) {
-                if (role === "next") return _mixRect(_slotRect("right"), _slotRect("offRight"))
-                if (role === "current") return _mixRect(_slotRect("center"), _slotRect("right"))
-                if (role === "prev") return _mixRect(_slotRect("left"), _slotRect("center"))
-                if (role === "incoming") return _mixRect(_slotRect("offLeft"), _slotRect("left"))
-            }
-            return _slotRect("center")
+        function _staticOffsets() {
+            return [-2, -1, 0, 1, 2];
         }
-        function _animatedPath(role) {
-            if (root._animStartIdx < 0) return ""
-            if (root._animDir > 0) {
-                if (role === "prev") return root._pathAt(root._animStartIdx, -1)
-                if (role === "current") return root._pathAt(root._animStartIdx, 0)
-                if (role === "next") return root._pathAt(root._animStartIdx, 1)
-                if (role === "incoming") return root._pathAt(root._animStartIdx, 2)
-            } else if (root._animDir < 0) {
-                if (role === "prev") return root._pathAt(root._animStartIdx, -1)
-                if (role === "current") return root._pathAt(root._animStartIdx, 0)
-                if (role === "next") return root._pathAt(root._animStartIdx, 1)
-                if (role === "incoming") return root._pathAt(root._animStartIdx, -2)
-            }
-            return ""
+        function _animatedOffsets() {
+            return root._animDir > 0 ? [-2, -1, 0, 1, 2, 3] : [-3, -2, -1, 0, 1, 2];
         }
+        function _animatedRect(offset) {
+            const targetOffset = offset - root._animDir;
+            return _mixRect(_slotRect(offset), _slotRect(targetOffset));
+        }
+        function _animatedPath(offset) {
+            return root._animStartIdx >= 0 ? root._pathAt(root._animStartIdx, offset) : "";
+        }
+        function _cardOpacity(offset) {
+            if (offset === 0)
+                return 1.0;
+            if (Math.abs(offset) === 1)
+                return 0.92;
+            return 0.82;
+        }
+        function _cardColor(offset) {
+            return offset === 0 ? Theme.surface : Theme.accent;
+        }
+
+        readonly property int _decodeWidth: Math.max(256, Math.round(heroArea._centerWidth * 1.1))
+        readonly property int _decodeHeight: Math.max(144, Math.round(heroArea._previewHeight * 1.1))
 
         Item {
             id: wallpaperContent
             anchors.fill: parent
 
             Item {
+                width: 1
+                height: 1
+                opacity: 0
+                enabled: false
+
+                Repeater {
+                    model: root._preloadPaths
+
+                    delegate: Image {
+                        required property var modelData
+                        width: 1
+                        height: 1
+                        source: modelData ? "file://" + modelData : ""
+                        sourceSize.width: heroArea._decodeWidth
+                        sourceSize.height: heroArea._decodeHeight
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        cache: true
+                        mipmap: true
+                    }
+                }
+            }
+
+            Item {
                 id: previewFrame
-                anchors.centerIn: parent
-                width: parent.width * heroArea._previewScale
-                height: parent.height * heroArea._previewScale
-            }
-
-            Item {
-                id: leftPreviewWrap
                 anchors.left: parent.left
-                anchors.right: mainPreview.left
-                anchors.top: previewFrame.top
-                anchors.bottom: previewFrame.bottom
-                anchors.rightMargin: heroArea._centerGap
-                opacity: root._hasMultiple ? 1.0 : 0.0
-                visible: !root._isAnimating
-
-                ClippingRectangle {
-                    id: leftPreview
-                    anchors.fill: parent
-                    radius: heroArea._previewRadius
-                    color: Theme.accent
-
-                    Image {
-                        anchors.fill: parent
-                        source: root._previousPath ? "file://" + root._previousPath : ""
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        visible: root._previousPath !== ""
-                    }
-
-                    Rectangle {
-                        anchors.fill: parent
-                        visible: root._previousPath === ""
-                        color: Theme.accent
-                    }
-                }
-
-                MouseArea {
-                    anchors.fill: leftPreview
-                    hoverEnabled: true
-                    enabled: root._hasMultiple
-                    onClicked: {
-                        root.forceActiveFocus()
-                        root._selectRelative(-1)
-                    }
-                    onWheel: (event) => {
-                        root._selectRelative(event.angleDelta.y < 0 ? 1 : -1)
-                        event.accepted = true
-                    }
-                }
+                anchors.right: parent.right
+                anchors.leftMargin: 2
+                anchors.rightMargin: 2
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 10
+                height: parent.height * 0.85
             }
 
             Item {
-                id: rightPreviewWrap
-                anchors.left: mainPreview.right
-                anchors.right: parent.right
-                anchors.top: previewFrame.top
-                anchors.bottom: previewFrame.bottom
-                anchors.leftMargin: heroArea._centerGap
-                opacity: root._hasMultiple ? 1.0 : 0.0
-                visible: !root._isAnimating
+                anchors.fill: parent
+                visible: !root._animatingTransition
 
-                ClippingRectangle {
-                    id: rightPreview
-                    anchors.fill: parent
-                    radius: heroArea._previewRadius
-                    color: Theme.accent
+                Repeater {
+                    model: heroArea._staticOffsets()
 
-                    Image {
-                        anchors.fill: parent
-                        source: root._nextPath ? "file://" + root._nextPath : ""
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        visible: root._nextPath !== ""
+                    delegate: WallpaperCard {
+                        required property var modelData
+                        readonly property var rect: heroArea._slotRect(modelData)
+                        x: rect.x
+                        y: rect.y
+                        width: rect.w
+                        height: rect.h
+                        z: 10 - Math.abs(modelData)
+                        sourcePath: root._pathAt(root._selectedIdx, modelData)
+                        offset: modelData
+                        cardOpacity: heroArea._cardOpacity(modelData)
+                        cardColor: heroArea._cardColor(modelData)
+                        interactive: !root._isAnimating
                     }
-
-                    Rectangle {
-                        anchors.fill: parent
-                        visible: root._nextPath === ""
-                        color: Theme.accent
-                    }
-                }
-
-                MouseArea {
-                    anchors.fill: rightPreview
-                    hoverEnabled: true
-                    enabled: root._hasMultiple
-                    onClicked: {
-                        root.forceActiveFocus()
-                        root._selectRelative(1)
-                    }
-                    onWheel: (event) => {
-                        root._selectRelative(event.angleDelta.y < 0 ? 1 : -1)
-                        event.accepted = true
-                    }
-                }
-            }
-
-            ClippingRectangle {
-                id: mainPreview
-                anchors.horizontalCenter: previewFrame.horizontalCenter
-                anchors.top: previewFrame.top
-                anchors.bottom: previewFrame.bottom
-                width: Math.min(previewFrame.width, Math.round(height * 16 / 9))
-                radius: heroArea._previewRadius
-                color: Theme.surface
-                visible: !root._isAnimating
-
-                Image {
-                    anchors.fill: parent
-                    source: root._hasSelection ? "file://" + root._previewPath : ""
-                    fillMode: Image.PreserveAspectCrop
-                    asynchronous: true
-                    visible: root._hasSelection
-                }
-
-                Rectangle {
-                    anchors.fill: parent
-                    visible: !root._hasSelection
-                    color: Theme.accent
-                }
-
-                Item {
-                    anchors.fill: parent
-                    visible: !root._hasSelection
-
-                    Rectangle {
-                        width: 58
-                        height: 58
-                        radius: 18
-                        anchors.centerIn: parent
-                        color: Theme.accent
-
-                        Rectangle {
-                            width: 24
-                            height: 24
-                            radius: 8
-                            anchors.centerIn: parent
-                            color: Qt.rgba(root._accentColor.r, root._accentColor.g, root._accentColor.b, 0.16)
-                        }
-                    }
-                }
-            }
-
-            MouseArea {
-                anchors.fill: mainPreview
-                acceptedButtons: Qt.LeftButton
-                enabled: root._hasSelection
-                onClicked: {
-                    root.forceActiveFocus()
-                    root._applySelected()
-                }
-                onWheel: (event) => {
-                    root._selectRelative(event.angleDelta.y < 0 ? 1 : -1)
-                    event.accepted = true
                 }
             }
 
             Item {
                 anchors.fill: parent
-                visible: root._isAnimating
+                visible: root._animatingTransition
                 clip: true
 
-                ClippingRectangle {
-                    readonly property var rect: heroArea._animatedRect("prev")
-                    x: rect.x
-                    y: rect.y
-                    width: rect.w
-                    height: rect.h
-                    radius: heroArea._previewRadius
+                Repeater {
+                    model: heroArea._animatedOffsets()
+
+                    delegate: WallpaperCard {
+                        required property var modelData
+                        readonly property var rect: heroArea._animatedRect(modelData)
+                        x: rect.x
+                        y: rect.y
+                        width: rect.w
+                        height: rect.h
+                        z: 10 - Math.abs(modelData - root._animDir)
+                        sourcePath: heroArea._animatedPath(modelData)
+                        offset: modelData - root._animDir
+                        cardOpacity: heroArea._cardOpacity(modelData - root._animDir)
+                        cardColor: heroArea._cardColor(modelData - root._animDir)
+                        interactive: false
+                    }
+                }
+            }
+        }
+    }
+
+    component WallpaperCard: Item {
+        id: card
+        property string sourcePath: ""
+        property int offset: 0
+        property real cardOpacity: 1.0
+        property color cardColor: Theme.surface
+        property bool interactive: true
+
+        opacity: cardOpacity
+
+        ClippingRectangle {
+            anchors.fill: parent
+            radius: heroArea._previewRadius
+            color: card.cardColor
+
+            Image {
+                anchors.fill: parent
+                source: card.sourcePath ? "file://" + card.sourcePath : ""
+                sourceSize.width: heroArea._decodeWidth
+                sourceSize.height: heroArea._decodeHeight
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: true
+                cache: true
+                mipmap: true
+                visible: card.sourcePath !== ""
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                visible: card.sourcePath === ""
+                color: card.cardColor
+            }
+
+            Item {
+                anchors.fill: parent
+                visible: card.offset === 0 && card.sourcePath === ""
+
+                Rectangle {
+                    width: 58
+                    height: 58
+                    radius: 18
+                    anchors.centerIn: parent
                     color: Theme.accent
-                    z: root._animDir < 0 ? 3 : 1
-                    visible: root._animDir < 0 || root._animDir > 0
 
-                    Image {
-                        anchors.fill: parent
-                        source: heroArea._animatedPath("prev") ? "file://" + heroArea._animatedPath("prev") : ""
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        visible: source !== ""
+                    Rectangle {
+                        width: 24
+                        height: 24
+                        radius: 8
+                        anchors.centerIn: parent
+                        color: Qt.rgba(root._accentColor.r, root._accentColor.g, root._accentColor.b, 0.16)
                     }
                 }
+            }
+        }
 
-                ClippingRectangle {
-                    readonly property var rect: heroArea._animatedRect("current")
-                    x: rect.x
-                    y: rect.y
-                    width: rect.w
-                    height: rect.h
-                    radius: heroArea._previewRadius
-                    color: Theme.surface
-                    z: 2
-
-                    Image {
-                        anchors.fill: parent
-                        source: heroArea._animatedPath("current") ? "file://" + heroArea._animatedPath("current") : ""
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        visible: source !== ""
-                    }
-
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.LeftButton
+            enabled: card.interactive && (card.offset === 0 ? root._hasSelection : root._files.length > 1)
+            onClicked: {
+                root.forceActiveFocus();
+                if (card.offset === 0) {
+                    root._applySelected();
+                    return;
                 }
-
-                ClippingRectangle {
-                    readonly property var rect: heroArea._animatedRect("next")
-                    x: rect.x
-                    y: rect.y
-                    width: rect.w
-                    height: rect.h
-                    radius: heroArea._previewRadius
-                    color: Theme.accent
-                    z: root._animDir > 0 ? 3 : 1
-
-                    Image {
-                        anchors.fill: parent
-                        source: heroArea._animatedPath("next") ? "file://" + heroArea._animatedPath("next") : ""
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        visible: source !== ""
-                    }
-
-                }
-
-                ClippingRectangle {
-                    readonly property var rect: heroArea._animatedRect("incoming")
-                    x: rect.x
-                    y: rect.y
-                    width: rect.w
-                    height: rect.h
-                    radius: heroArea._previewRadius
-                    color: Theme.accent
-                    z: 0
-
-                    Image {
-                        anchors.fill: parent
-                        source: heroArea._animatedPath("incoming") ? "file://" + heroArea._animatedPath("incoming") : ""
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        visible: source !== ""
-                    }
-                }
+                if (root._selectedIdx >= 0)
+                    root._selectIdx(root._wrapIndex(root._selectedIdx + card.offset));
+            }
+            onWheel: event => {
+                root._selectRelative(event.angleDelta.y < 0 ? 1 : -1);
+                event.accepted = true;
             }
         }
     }

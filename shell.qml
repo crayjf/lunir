@@ -21,18 +21,26 @@ import "./modules"
 //   volume_up                    — +5% volume + show volume-osd
 //   volume_down                  — -5% volume + show volume-osd
 //   volume_mute                  — toggle mute  + show volume-osd
+//   dismiss_oldest_notification  — dismiss the oldest notification without taking focus
 //   set_wallpaper  <path>        — set wallpaper to an absolute path
-//   wallpaper_random             — pick a random wallpaper from configured folder
 
 ShellRoot {
     readonly property var _defaultAudioSink: Pipewire.defaultAudioSink
+    readonly property bool _garminBootstrap: GarminState.started
 
     PwObjectTracker {
         objects: [_defaultAudioSink]
     }
 
+    Timer {
+        interval: 1500
+        repeat: false
+        running: true
+        onTriggered: GarminState.ensureStarted()
+    }
+
     // ── Standalone windows ────────────────────────────────────────────────────
-    ControlCenter {}
+    ControlCenter { id: controlCenter }
     Variants {
         model: Quickshell.screens
         WallpaperBackground {
@@ -49,7 +57,7 @@ ShellRoot {
         }
     }
     VolumeOSD {}
-    NotificationOSD {}
+    NotificationOSD { id: notificationOsd }
 
     // ── Volume helpers ────────────────────────────────────────────────────────
     function _changeVolume(delta: real) {
@@ -64,24 +72,6 @@ ShellRoot {
             return;
         _defaultAudioSink.audio.muted = !_defaultAudioSink.audio.muted;
         ModuleControllers.show("volume-osd");
-    }
-
-    // ── Wallpaper-random helper ───────────────────────────────────────── ──────
-    Process {
-        id: _wpRandProc
-        property string folder: ""
-        command: ["bash", "-c", "f=${1/#~/$HOME}; find \"$f\" -maxdepth 2 -type f" + " \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp'" + " -o -iname '*.avif' -o -iname '*.tiff' \\)" + " | shuf -n 1", "--", _wpRandProc.folder]
-        running: false
-        stdout: StdioCollector {
-            id: _wpRandStdio
-        }
-        onExited: {
-            const p = _wpRandStdio.text.trim();
-            if (p)
-                Config.updateWallpaper({
-                    current: p
-                });
-        }
     }
 
     // ── Hot-reload watcher ────────────────────────────────────────────────────
@@ -138,6 +128,11 @@ ShellRoot {
             _toggleMute();
         }
 
+        function dismiss_oldest_notification() {
+            if ((controlCenter && controlCenter.visible) || (notificationOsd && notificationOsd.visible))
+                NotificationService.dismissOldest();
+        }
+
         function set_wallpaper(path: string) {
             if (path)
                 Config.updateWallpaper({
@@ -145,9 +140,5 @@ ShellRoot {
                 });
         }
 
-        function wallpaper_random() {
-            _wpRandProc.folder = Config.wallpaper.folder || "~/Pictures/Wallpaper";
-            _wpRandProc.running = true;
-        }
     }
 }

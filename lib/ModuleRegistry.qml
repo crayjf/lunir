@@ -23,7 +23,9 @@ Singleton {
         garmin: "GarminModule.qml",
     })
 
-    readonly property var desktopModules: (Config.desktopModules || []).map(function(module) {
+    readonly property var desktopModules: (!Config.desktopWidgetsEnabled ? [] : (Config.desktopModules || [])).filter(function(module) {
+        return !!module && typeof module === "object" && module.enabled !== false
+    }).map(function(module) {
         if (!module || typeof module !== "object")
             return module
 
@@ -31,7 +33,7 @@ Singleton {
         if (merged.type === "cava") {
             if (merged.height === undefined)
                 merged.height = Config.cava.height || 220
-            merged.props = Object.assign({}, Config.cava, module.props || {})
+            merged.props = Object.assign({}, Config.cava)
             if (merged.color !== undefined)
                 merged.props.barColor = merged.color
         }
@@ -43,7 +45,7 @@ Singleton {
         return file ? Qt.resolvedUrl("../modules/" + file) : ""
     }
 
-    function sidebarConfig(type, extraProps) {
+    function panelConfig(type, extraProps) {
         const props = Object.assign({}, settingsFor(type), extraProps || {}, { nativePanel: true })
         return { id: type, type: type, props: props }
     }

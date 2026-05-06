@@ -36,6 +36,14 @@ Singleton {
         if (notif) notif.dismiss()
     }
 
+    function dismissOldest() {
+        if (!notifications || notifications.length === 0)
+            return
+        const notif = notifications[0]
+        if (notif)
+            notif.dismiss()
+    }
+
     function invokePrimaryAction(notification) {
         if (!notification) return false
 
